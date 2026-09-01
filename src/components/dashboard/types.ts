@@ -68,3 +68,11 @@ export interface Business {
   plan: string;
   since: string;
 }
+
+/** Props every data-driven tab receives from DashboardShell, which owns the
+ * single useDashboardClient() fetch. */
+export interface TabDataProps {
+  configured: boolean;
+  clientId: string | null;
+  clientLoading: boolean;
+}

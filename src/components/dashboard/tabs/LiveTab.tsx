@@ -4,13 +4,15 @@ import { useEffect, useMemo, useState } from "react";
 import { Panel } from "../ui/Panel";
 import { Globe } from "../Globe";
 import { LIVE_PAGES, makeVisitor, randomFrom } from "../mock-data";
-import type { Visitor } from "../types";
+import type { TabDataProps, Visitor } from "../types";
+import { useLiveVisitors } from "@/lib/dashboard-data";
 
-export function LiveTab() {
-  const [visitors, setVisitors] = useState<Visitor[]>(() =>
+export function LiveTab({ configured, clientId, clientLoading }: TabDataProps) {
+  const [demoVisitors, setDemoVisitors] = useState<Visitor[]>(() =>
     Array.from({ length: 6 }, () => makeVisitor(Math.floor(Math.random() * 90)))
   );
   const [now, setNow] = useState(() => Date.now());
+  const { visitors: liveVisitors, loading } = useLiveVisitors(clientId);
 
   // Re-render once a second so "time on page" counters keep moving.
   useEffect(() => {
@@ -18,12 +20,13 @@ export function LiveTab() {
     return () => clearInterval(t);
   }, []);
 
-  // Simulate visitors arriving, leaving, and navigating — stands in for a
-  // real-time feed until this is wired to an actual analytics pixel (see
-  // dashboard-live-setup.md Phase 9).
+  // Demo-mode only: simulate visitors arriving, leaving, and navigating.
+  // Real mode gets its feed from useLiveVisitors' Supabase Realtime
+  // subscription instead (Phase 9).
   useEffect(() => {
+    if (configured) return;
     const t = setInterval(() => {
-      setVisitors((prev) => {
+      setDemoVisitors((prev) => {
         const roll = Math.random();
         if (roll < 0.35 && prev.length < 22) {
           return [...prev, makeVisitor(0)];
@@ -42,7 +45,10 @@ export function LiveTab() {
       });
     }, 2400);
     return () => clearInterval(t);
-  }, []);
+  }, [configured]);
+
+  const visitors = configured ? liveVisitors : demoVisitors;
+  const isLoading = configured && (clientLoading || loading);
 
   const pageCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -77,13 +83,19 @@ export function LiveTab() {
   const maxCount = Math.max(1, ...pageCounts.map((p) => p.count));
   const maxLocationCount = Math.max(1, ...locationCounts.map((l) => l.count));
 
+  if (isLoading) {
+    return <div className="live-empty">Loading…</div>;
+  }
+
   return (
     <>
       <div className="live-banner">
         <span className="live-dot" />
         <div>
           <div className="live-count">{visitors.length} people on your site right now</div>
-          <div className="live-sub">Updates automatically — no need to refresh.</div>
+          <div className="live-sub">
+            {configured ? "Live from your tracking snippet — see Settings for the setup." : "Updates automatically — no need to refresh."}
+          </div>
         </div>
       </div>
 

@@ -8,6 +8,7 @@ import { AdsTab } from "./tabs/AdsTab";
 import { SocialTab } from "./tabs/SocialTab";
 import { LiveTab } from "./tabs/LiveTab";
 import { SettingsTab } from "./tabs/SettingsTab";
+import { useDashboardClient } from "@/lib/dashboard-data";
 
 interface DashboardShellProps {
   onLogout: () => void;
@@ -27,15 +28,29 @@ type TabId = (typeof NAV)[number]["id"];
 export function DashboardShell({ onLogout }: DashboardShellProps) {
   const [tab, setTab] = useState<TabId>("overview");
   const [range, setRange] = useState("30d");
+  const { client, loading, configured } = useDashboardClient();
+
+  const businessName = configured ? client?.name ?? BUSINESS.name : BUSINESS.name;
+  const businessPlan = configured ? client?.plan ?? BUSINESS.plan : BUSINESS.plan;
+  const clientId = client?.id ?? null;
+  const noClientLinked = configured && !loading && !client;
 
   const content = useMemo(() => {
-    if (tab === "overview") return <OverviewTab />;
-    if (tab === "seo") return <SeoTab />;
-    if (tab === "ads") return <AdsTab />;
-    if (tab === "social") return <SocialTab />;
-    if (tab === "live") return <LiveTab />;
-    return <SettingsTab onLogout={onLogout} />;
-  }, [tab, onLogout]);
+    if (noClientLinked) {
+      return (
+        <div className="live-empty">
+          No client profile is linked to your account yet. Ask your Heliast admin to create one — see the
+          Settings tab for your account details.
+        </div>
+      );
+    }
+    if (tab === "overview") return <OverviewTab configured={configured} clientId={clientId} clientLoading={loading} />;
+    if (tab === "seo") return <SeoTab configured={configured} clientId={clientId} clientLoading={loading} />;
+    if (tab === "ads") return <AdsTab configured={configured} clientId={clientId} clientLoading={loading} />;
+    if (tab === "social") return <SocialTab configured={configured} clientId={clientId} clientLoading={loading} />;
+    if (tab === "live") return <LiveTab configured={configured} clientId={clientId} clientLoading={loading} />;
+    return <SettingsTab onLogout={onLogout} businessName={businessName} businessPlan={businessPlan} clientId={clientId} />;
+  }, [tab, onLogout, configured, clientId, loading, noClientLinked, businessName, businessPlan]);
 
   const title = NAV.find((n) => n.id === tab)?.label ?? "Overview";
 
@@ -55,10 +70,10 @@ export function DashboardShell({ onLogout }: DashboardShellProps) {
         </nav>
         <div className="sidebar-foot">
           <div className="account-chip">
-            <span className="account-avatar">M</span>
+            <span className="account-avatar">{businessName.charAt(0).toUpperCase()}</span>
             <div>
-              <div className="account-name">{BUSINESS.name}</div>
-              <div className="account-plan">{BUSINESS.plan} plan</div>
+              <div className="account-name">{businessName}</div>
+              <div className="account-plan">{businessPlan ?? "—"} plan</div>
             </div>
           </div>
         </div>
@@ -68,7 +83,7 @@ export function DashboardShell({ onLogout }: DashboardShellProps) {
         <header className="topbar">
           <div>
             <h1>{title}</h1>
-            <p className="topbar-sub">{BUSINESS.name} · performance dashboard</p>
+            <p className="topbar-sub">{businessName} · performance dashboard</p>
           </div>
           <div className="range-toggle">
             {(["7d", "30d", "90d"] as const).map((r) => (
