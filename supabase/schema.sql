@@ -1,7 +1,10 @@
 -- Heliast dashboard — Supabase schema (dashboard-live-setup.md, Phase 2).
--- Run this once in the Supabase SQL Editor for a fresh project.
+-- Applied to the "Heliast site" project (kkvqlplqhdtylwryttpi), which is
+-- shared with the marketing site. That project already has its own
+-- unrelated public.clients table, so every dashboard table here uses a
+-- dashboard_ prefix to stay completely separate from it.
 
-create table clients (
+create table dashboard_clients (
   id uuid primary key default gen_random_uuid(),
   owner_user_id uuid references auth.users(id),
   name text not null,
@@ -9,9 +12,9 @@ create table clients (
   created_at timestamptz default now()
 );
 
-create table client_integrations (
+create table dashboard_client_integrations (
   id uuid primary key default gen_random_uuid(),
-  client_id uuid references clients(id) on delete cascade,
+  client_id uuid references dashboard_clients(id) on delete cascade,
   platform text not null, -- 'gsc' | 'gads' | 'meta_ads' | 'instagram' | 'tiktok' | 'facebook'
   access_token text not null,
   refresh_token text,
@@ -20,9 +23,9 @@ create table client_integrations (
   unique (client_id, platform)
 );
 
-create table daily_traffic (
+create table dashboard_daily_traffic (
   id uuid primary key default gen_random_uuid(),
-  client_id uuid references clients(id) on delete cascade,
+  client_id uuid references dashboard_clients(id) on delete cascade,
   date date not null,
   sessions int,
   conversions int,
@@ -30,18 +33,18 @@ create table daily_traffic (
   unique (client_id, date, channel)
 );
 
-create table keyword_rankings (
+create table dashboard_keyword_rankings (
   id uuid primary key default gen_random_uuid(),
-  client_id uuid references clients(id) on delete cascade,
+  client_id uuid references dashboard_clients(id) on delete cascade,
   keyword text not null,
   position int,
   search_volume int,
   checked_at date default current_date
 );
 
-create table ad_campaigns (
+create table dashboard_ad_campaigns (
   id uuid primary key default gen_random_uuid(),
-  client_id uuid references clients(id) on delete cascade,
+  client_id uuid references dashboard_clients(id) on delete cascade,
   name text not null,
   platform text, -- 'google_ads' | 'meta_ads'
   spend numeric,
@@ -50,18 +53,18 @@ create table ad_campaigns (
   synced_at timestamptz default now()
 );
 
-create table social_stats (
+create table dashboard_social_stats (
   id uuid primary key default gen_random_uuid(),
-  client_id uuid references clients(id) on delete cascade,
+  client_id uuid references dashboard_clients(id) on delete cascade,
   platform text, -- 'instagram' | 'tiktok' | 'facebook'
   followers int,
   engagement_rate numeric,
   date date default current_date
 );
 
-create table live_visitors (
+create table dashboard_live_visitors (
   id uuid primary key default gen_random_uuid(),
-  client_id uuid references clients(id) on delete cascade,
+  client_id uuid references dashboard_clients(id) on delete cascade,
   page text,
   location text,
   lat numeric,
@@ -72,52 +75,52 @@ create table live_visitors (
 
 -- ---------------------------------------------------------------------------
 -- Row Level Security — every client-facing table only returns rows for
--- clients owned by the logged-in user. client_integrations holds OAuth
--- tokens and is intentionally left with no client-facing read policy: only
--- admin routes using the service role key (which bypasses RLS) touch it.
+-- clients owned by the logged-in user. dashboard_client_integrations holds
+-- OAuth tokens and is intentionally left with no client-facing read policy:
+-- only admin routes using the service role key (which bypasses RLS) touch it.
 -- ---------------------------------------------------------------------------
 
-alter table clients enable row level security;
-alter table client_integrations enable row level security;
-alter table daily_traffic enable row level security;
-alter table keyword_rankings enable row level security;
-alter table ad_campaigns enable row level security;
-alter table social_stats enable row level security;
-alter table live_visitors enable row level security;
+alter table dashboard_clients enable row level security;
+alter table dashboard_client_integrations enable row level security;
+alter table dashboard_daily_traffic enable row level security;
+alter table dashboard_keyword_rankings enable row level security;
+alter table dashboard_ad_campaigns enable row level security;
+alter table dashboard_social_stats enable row level security;
+alter table dashboard_live_visitors enable row level security;
 
 create policy "clients read their own record"
-on clients for select
+on dashboard_clients for select
 using (owner_user_id = auth.uid());
 
 create policy "clients read their own traffic"
-on daily_traffic for select
+on dashboard_daily_traffic for select
 using (
-  client_id in (select id from clients where owner_user_id = auth.uid())
+  client_id in (select id from dashboard_clients where owner_user_id = auth.uid())
 );
 
 create policy "clients read their own keyword rankings"
-on keyword_rankings for select
+on dashboard_keyword_rankings for select
 using (
-  client_id in (select id from clients where owner_user_id = auth.uid())
+  client_id in (select id from dashboard_clients where owner_user_id = auth.uid())
 );
 
 create policy "clients read their own ad campaigns"
-on ad_campaigns for select
+on dashboard_ad_campaigns for select
 using (
-  client_id in (select id from clients where owner_user_id = auth.uid())
+  client_id in (select id from dashboard_clients where owner_user_id = auth.uid())
 );
 
 create policy "clients read their own social stats"
-on social_stats for select
+on dashboard_social_stats for select
 using (
-  client_id in (select id from clients where owner_user_id = auth.uid())
+  client_id in (select id from dashboard_clients where owner_user_id = auth.uid())
 );
 
 create policy "clients read their own live visitors"
-on live_visitors for select
+on dashboard_live_visitors for select
 using (
-  client_id in (select id from clients where owner_user_id = auth.uid())
+  client_id in (select id from dashboard_clients where owner_user_id = auth.uid())
 );
 
--- No policy is created on client_integrations — it stays unreadable from
--- the client, by design.
+-- No policy is created on dashboard_client_integrations — it stays
+-- unreadable from the client, by design.
