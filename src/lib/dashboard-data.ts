@@ -5,7 +5,7 @@
 // to the logged-in client via owner_user_id = auth.uid()) and shapes the
 // result into the same props the tab components already render. Falls back
 // to "not configured" when Supabase isn't wired up (see supabase/client.ts).
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "./supabase/client";
 import type {
   CampaignRow,
@@ -585,4 +585,65 @@ function integrationSummary(connected: string[]): IntegrationStatus[] {
     connected: connected.includes(platform),
     connected_at: null,
   }));
+}
+
+export interface SavedReport {
+  id: string;
+  title: string;
+  prompt: string;
+  content: string;
+  created_at: string;
+}
+
+/** Saved custom reports (RLS-scoped to the caller's own client_id, so this
+ * hits Supabase directly from the browser — no server route needed for
+ * plain CRUD, only for the Claude generation call itself). */
+export function useSavedReports(clientId: string | null) {
+  const [reports, setReports] = useState<SavedReport[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!supabase || !clientId) {
+      setReports([]);
+      return;
+    }
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("dashboard_reports")
+      .select("id, title, prompt, content, created_at")
+      .eq("client_id", clientId)
+      .order("created_at", { ascending: false });
+    if (error) console.error("Failed to load saved reports", error);
+    setReports((data as SavedReport[]) ?? []);
+    setLoading(false);
+  }, [clientId]);
+
+  useEffect(() => {
+    (async () => {
+      await refresh();
+    })();
+  }, [refresh]);
+
+  const saveReport = useCallback(
+    async (title: string, prompt: string, content: string) => {
+      if (!supabase || !clientId) return { error: "Not signed in" };
+      const { error } = await supabase.from("dashboard_reports").insert({ client_id: clientId, title, prompt, content });
+      if (error) return { error: error.message };
+      await refresh();
+      return { error: null };
+    },
+    [clientId, refresh]
+  );
+
+  const deleteReport = useCallback(
+    async (id: string) => {
+      if (!supabase) return;
+      const { error } = await supabase.from("dashboard_reports").delete().eq("id", id);
+      if (error) console.error("Failed to delete report", error);
+      await refresh();
+    },
+    [refresh]
+  );
+
+  return { reports, loading, saveReport, deleteReport };
 }

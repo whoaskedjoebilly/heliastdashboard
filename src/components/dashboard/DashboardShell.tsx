@@ -7,6 +7,7 @@ import { SeoTab } from "./tabs/SeoTab";
 import { AdsTab } from "./tabs/AdsTab";
 import { SocialTab } from "./tabs/SocialTab";
 import { LiveTab } from "./tabs/LiveTab";
+import { ReportsTab } from "./tabs/ReportsTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 import { useDashboardClient } from "@/lib/dashboard-data";
 
@@ -24,6 +25,7 @@ const NAV = [
   { id: "ads", label: "Ads" },
   { id: "social", label: "Social" },
   { id: "live", label: "Live" },
+  { id: "reports", label: "Reports" },
   { id: "settings", label: "Settings" },
 ] as const;
 
@@ -57,6 +59,7 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
     if (tab === "ads") return <AdsTab configured={configured} clientId={clientId} clientLoading={loading} />;
     if (tab === "social") return <SocialTab configured={configured} clientId={clientId} clientLoading={loading} />;
     if (tab === "live") return <LiveTab configured={configured} clientId={clientId} clientLoading={loading} />;
+    if (tab === "reports") return <ReportsTab configured={configured} clientId={clientId} clientLoading={loading} />;
     return <SettingsTab onLogout={onLogout} businessName={businessName} businessPlan={businessPlan} clientId={clientId} />;
   }, [tab, onLogout, configured, clientId, loading, noClientLinked, businessName, businessPlan]);
 
