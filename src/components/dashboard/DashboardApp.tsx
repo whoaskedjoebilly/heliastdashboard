@@ -35,11 +35,20 @@ export function DashboardApp() {
   };
 
   if (checkingSession) {
-    return <div className="dashboard-root" />;
+    return (
+      <div className="dashboard-root">
+        <div className="bg-blobs" aria-hidden="true">
+          <span />
+        </div>
+      </div>
+    );
   }
 
   return (
     <div className="dashboard-root">
+      <div className="bg-blobs" aria-hidden="true">
+        <span />
+      </div>
       {authed ? <DashboardShell onLogout={handleLogout} /> : <LoginScreen onLogin={() => setAuthed(true)} />}
     </div>
   );

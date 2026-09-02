@@ -1,11 +1,13 @@
 "use client";
 
+import { Activity, CheckCircle2, DollarSign, Target } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { Delta } from "../ui/Delta";
 import { StatusDot } from "../ui/StatusDot";
-import { CAMPAIGNS, CHANNEL_SPLIT, KEYWORDS, TRAFFIC } from "../mock-data";
+import { DonutChannelChart } from "../ui/DonutChannelChart";
+import { CAMPAIGNS, CHANNEL_SPLIT, CONVERSIONS, KEYWORDS, TRAFFIC } from "../mock-data";
 import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
 import { useOverviewData } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
@@ -25,18 +27,57 @@ export function OverviewTab({ configured, clientId, clientLoading }: TabDataProp
     : { sessions: 12480, sessionsDelta: 9, conversions: 318, conversionsDelta: 14, adSpend: 4630, roas: 3.6 };
 
   const traffic = configured ? data.traffic : TRAFFIC;
+  const conversionsTrend = configured ? data.conversionsTrend : CONVERSIONS;
   const channelSplit = configured ? data.channelSplit : CHANNEL_SPLIT;
   const keywords = configured ? data.topKeywords : KEYWORDS;
   const campaigns = configured ? data.campaigns : CAMPAIGNS;
   const isLoading = configured && (clientLoading || loading);
 
+  const sessionsSpark = traffic.slice(-12).map((t) => t.value);
+  const conversionsSpark = conversionsTrend.slice(-12).map((t) => t.value);
+  const totalChannelSessions = channelSplit.length > 0 ? heroMetrics.sessions.toLocaleString() : "—";
+
   return (
     <>
       <div className="hero-row">
-        <MetricHero label="Sessions (30d)" value={heroMetrics.sessions} deltaLabel="vs prior 30d" deltaValue={heroMetrics.sessionsDelta} />
-        <MetricHero label="Conversions" value={heroMetrics.conversions} deltaLabel="vs prior 30d" deltaValue={heroMetrics.conversionsDelta} />
-        <MetricHero label="Ad spend" value={heroMetrics.adSpend} prefix="$" deltaLabel="vs prior 30d" deltaValue={0} invert />
-        <MetricHero label="Blended ROAS" value={heroMetrics.roas} suffix="×" decimals={1} deltaLabel="vs prior 30d" deltaValue={0} />
+        <MetricHero
+          label="Sessions (30d)"
+          value={heroMetrics.sessions}
+          deltaLabel="vs prior 30d"
+          deltaValue={heroMetrics.sessionsDelta}
+          icon={<Activity size={16} />}
+          color="#3ef28c"
+          sparkline={sessionsSpark}
+        />
+        <MetricHero
+          label="Conversions"
+          value={heroMetrics.conversions}
+          deltaLabel="vs prior 30d"
+          deltaValue={heroMetrics.conversionsDelta}
+          icon={<CheckCircle2 size={16} />}
+          color="#4ea8ff"
+          sparkline={conversionsSpark}
+        />
+        <MetricHero
+          label="Ad spend"
+          value={heroMetrics.adSpend}
+          prefix="$"
+          deltaLabel="vs prior 30d"
+          deltaValue={0}
+          invert
+          icon={<DollarSign size={16} />}
+          color="#f2a93e"
+        />
+        <MetricHero
+          label="Blended ROAS"
+          value={heroMetrics.roas}
+          suffix="×"
+          decimals={1}
+          deltaLabel="vs prior 30d"
+          deltaValue={0}
+          icon={<Target size={16} />}
+          color="#c084fc"
+        />
       </div>
 
       <div className="grid-2">
@@ -64,19 +105,12 @@ export function OverviewTab({ configured, clientId, clientLoading }: TabDataProp
           )}
         </Panel>
 
-        <Panel title="Traffic by channel">
-          <div className="channel-list">
-            {channelSplit.length === 0 && !isLoading && <div className="live-empty">No traffic data yet.</div>}
-            {channelSplit.map((c) => (
-              <div className="channel-row" key={c.channel}>
-                <div className="channel-label">{c.channel}</div>
-                <div className="channel-bar-track">
-                  <div className="channel-bar-fill" style={{ width: `${c.value}%` }} />
-                </div>
-                <div className="channel-value">{c.value}%</div>
-              </div>
-            ))}
-          </div>
+        <Panel title="Top channels">
+          {channelSplit.length === 0 && !isLoading ? (
+            <div className="live-empty">No traffic data yet.</div>
+          ) : (
+            <DonutChannelChart data={channelSplit} centerValue={totalChannelSessions} centerLabel="sessions" />
+          )}
         </Panel>
       </div>
 

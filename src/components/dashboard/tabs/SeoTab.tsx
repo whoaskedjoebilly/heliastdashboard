@@ -1,6 +1,7 @@
 "use client";
 
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { FileSearch, AlertTriangle, TrendingUp, Link2 } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { Delta } from "../ui/Delta";
@@ -20,10 +21,41 @@ export function SeoTab({ configured, clientId, clientLoading }: TabDataProps) {
   return (
     <>
       <div className="hero-row">
-        <MetricHero label="Pages indexed" value={health.indexed} deltaLabel="vs last month" deltaValue={0} />
-        <MetricHero label="Crawl errors" value={health.crawlErrors} deltaLabel="vs last month" deltaValue={0} invert />
-        <MetricHero label="Avg. position" value={health.avgPosition} decimals={1} deltaLabel="vs last month" deltaValue={0} invert />
-        <MetricHero label="Backlinks" value={health.backlinks} deltaLabel="vs last month" deltaValue={0} />
+        <MetricHero
+          label="Pages indexed"
+          value={health.indexed}
+          deltaLabel="vs last month"
+          deltaValue={0}
+          icon={<FileSearch size={16} />}
+          color="#3ef28c"
+        />
+        <MetricHero
+          label="Crawl errors"
+          value={health.crawlErrors}
+          deltaLabel="vs last month"
+          deltaValue={0}
+          invert
+          icon={<AlertTriangle size={16} />}
+          color="#f2634e"
+        />
+        <MetricHero
+          label="Avg. position"
+          value={health.avgPosition}
+          decimals={1}
+          deltaLabel="vs last month"
+          deltaValue={0}
+          invert
+          icon={<TrendingUp size={16} />}
+          color="#4ea8ff"
+        />
+        <MetricHero
+          label="Backlinks"
+          value={health.backlinks}
+          deltaLabel="vs last month"
+          deltaValue={0}
+          icon={<Link2 size={16} />}
+          color="#c084fc"
+        />
       </div>
       {configured && (
         <p className="table-sub" style={{ marginTop: -14, marginBottom: 18 }}>

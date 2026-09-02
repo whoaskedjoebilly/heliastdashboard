@@ -1,6 +1,8 @@
 "use client";
 
+import type { CSSProperties } from "react";
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Users, UserPlus, Heart, Flame } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { Delta } from "../ui/Delta";
@@ -23,14 +25,42 @@ export function SocialTab({ configured, clientId, clientLoading }: TabDataProps)
   const avgEngagement = totalFollowers > 0 ? platforms.reduce((a, p) => a + p.engagement * p.followers, 0) / totalFollowers : 0;
   const newThisMonth = Math.round(totalFollowers * 0.072);
   const topPlatform = platforms.length > 0 ? platforms.reduce((a, b) => (b.delta > a.delta ? b : a)) : null;
+  const followersSpark = followersTrend.slice(-12).map((t) => t.value);
 
   return (
     <>
       <div className="hero-row">
-        <MetricHero label="Total followers" value={totalFollowers} deltaLabel="vs last month" deltaValue={0} />
-        <MetricHero label="New followers" value={configured ? 0 : newThisMonth} deltaLabel="last 30 days" deltaValue={0} />
-        <MetricHero label="Avg. engagement rate" value={avgEngagement} suffix="%" decimals={1} deltaLabel="vs last month" deltaValue={0} />
-        <div className="metric-hero">
+        <MetricHero
+          label="Total followers"
+          value={totalFollowers}
+          deltaLabel="vs last month"
+          deltaValue={0}
+          icon={<Users size={16} />}
+          color="#3ef28c"
+          sparkline={followersSpark}
+        />
+        <MetricHero
+          label="New followers"
+          value={configured ? 0 : newThisMonth}
+          deltaLabel="last 30 days"
+          deltaValue={0}
+          icon={<UserPlus size={16} />}
+          color="#4ea8ff"
+        />
+        <MetricHero
+          label="Avg. engagement rate"
+          value={avgEngagement}
+          suffix="%"
+          decimals={1}
+          deltaLabel="vs last month"
+          deltaValue={0}
+          icon={<Heart size={16} />}
+          color="#f2634e"
+        />
+        <div className="metric-hero" style={{ "--metric-color": "#f2a93e" } as CSSProperties}>
+          <div className="metric-icon">
+            <Flame size={16} />
+          </div>
           <div className="metric-label">Fastest growing</div>
           <div className="metric-value metric-value-text">{topPlatform ? topPlatform.platform : "—"}</div>
           <div className="metric-delta">

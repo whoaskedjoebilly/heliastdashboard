@@ -77,6 +77,7 @@ interface OverviewData {
   adSpend30d: number;
   blendedRoas: number;
   traffic: TrendPoint[];
+  conversionsTrend: TrendPoint[];
   channelSplit: ChannelSplit[];
   topKeywords: KeywordRow[];
   campaigns: CampaignRow[];
@@ -90,6 +91,7 @@ const EMPTY_OVERVIEW: OverviewData = {
   adSpend30d: 0,
   blendedRoas: 0,
   traffic: [],
+  conversionsTrend: [],
   channelSplit: [],
   topKeywords: [],
   campaigns: [],
@@ -148,6 +150,7 @@ export function useOverviewData(clientId: string | null) {
 
       const trafficRows = trafficRes.data ?? [];
       const byDate = new Map<string, number>();
+      const byDateConversions = new Map<string, number>();
       const byChannel = new Map<string, number>();
       let sessions30d = 0;
       let conversions30d = 0;
@@ -157,6 +160,7 @@ export function useOverviewData(clientId: string | null) {
         const inLast30 = row.date >= since30Str;
         if (inLast30) {
           byDate.set(row.date, (byDate.get(row.date) ?? 0) + (row.sessions ?? 0));
+          byDateConversions.set(row.date, (byDateConversions.get(row.date) ?? 0) + (row.conversions ?? 0));
           byChannel.set(row.channel ?? "Other", (byChannel.get(row.channel ?? "Other") ?? 0) + (row.sessions ?? 0));
           sessions30d += row.sessions ?? 0;
           conversions30d += row.conversions ?? 0;
@@ -166,6 +170,9 @@ export function useOverviewData(clientId: string | null) {
         }
       }
       const traffic: TrendPoint[] = Array.from(byDate.entries())
+        .sort(([a], [b]) => (a < b ? -1 : 1))
+        .map(([date, value]) => ({ date: formatDay(date), value }));
+      const conversionsTrend: TrendPoint[] = Array.from(byDateConversions.entries())
         .sort(([a], [b]) => (a < b ? -1 : 1))
         .map(([date, value]) => ({ date: formatDay(date), value }));
 
@@ -217,6 +224,7 @@ export function useOverviewData(clientId: string | null) {
         adSpend30d,
         blendedRoas,
         traffic,
+        conversionsTrend,
         channelSplit,
         topKeywords,
         campaigns,

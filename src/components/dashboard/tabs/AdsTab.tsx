@@ -1,6 +1,7 @@
 "use client";
 
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { DollarSign, Target, CheckCircle2, Receipt } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { StatusDot } from "../ui/StatusDot";
@@ -20,14 +21,51 @@ export function AdsTab({ configured, clientId, clientLoading }: TabDataProps) {
   const totalSpend = campaigns.reduce((a, c) => a + c.spend, 0);
   const blendedRoas = totalSpend > 0 ? campaigns.reduce((a, c) => a + c.roas * c.spend, 0) / totalSpend : 0;
   const costPerConversion = conversions30d > 0 ? totalSpend / conversions30d : 0;
+  const conversionsSpark = conversionsTrend.slice(-12).map((t) => t.value);
 
   return (
     <>
       <div className="hero-row">
-        <MetricHero label="Total spend (30d)" value={totalSpend} prefix="$" deltaLabel="vs prior 30d" deltaValue={0} invert />
-        <MetricHero label="Blended ROAS" value={blendedRoas} suffix="×" decimals={1} deltaLabel="vs prior 30d" deltaValue={0} />
-        <MetricHero label="Conversions" value={conversions30d} deltaLabel="vs prior 30d" deltaValue={0} />
-        <MetricHero label="Cost / conversion" value={costPerConversion} prefix="$" decimals={2} deltaLabel="vs prior 30d" deltaValue={0} invert />
+        <MetricHero
+          label="Total spend (30d)"
+          value={totalSpend}
+          prefix="$"
+          deltaLabel="vs prior 30d"
+          deltaValue={0}
+          invert
+          icon={<DollarSign size={16} />}
+          color="#f2a93e"
+        />
+        <MetricHero
+          label="Blended ROAS"
+          value={blendedRoas}
+          suffix="×"
+          decimals={1}
+          deltaLabel="vs prior 30d"
+          deltaValue={0}
+          icon={<Target size={16} />}
+          color="#c084fc"
+        />
+        <MetricHero
+          label="Conversions"
+          value={conversions30d}
+          deltaLabel="vs prior 30d"
+          deltaValue={0}
+          icon={<CheckCircle2 size={16} />}
+          color="#4ea8ff"
+          sparkline={conversionsSpark}
+        />
+        <MetricHero
+          label="Cost / conversion"
+          value={costPerConversion}
+          prefix="$"
+          decimals={2}
+          deltaLabel="vs prior 30d"
+          deltaValue={0}
+          invert
+          icon={<Receipt size={16} />}
+          color="#3ef28c"
+        />
       </div>
 
       <Panel title="Campaign performance">
