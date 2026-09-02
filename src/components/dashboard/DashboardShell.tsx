@@ -12,6 +12,10 @@ import { useDashboardClient } from "@/lib/dashboard-data";
 
 interface DashboardShellProps {
   onLogout: () => void;
+  /** True for a demo-account session — forces every tab to use mock data
+   * even when Supabase is configured, since a demo login has no real
+   * Supabase session (and therefore no RLS-visible client row) behind it. */
+  forceDemo?: boolean;
 }
 
 const NAV = [
@@ -25,14 +29,18 @@ const NAV = [
 
 type TabId = (typeof NAV)[number]["id"];
 
-export function DashboardShell({ onLogout }: DashboardShellProps) {
+export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
   const [tab, setTab] = useState<TabId>("overview");
   const [range, setRange] = useState("30d");
-  const { client, loading, configured } = useDashboardClient();
+  const { client, loading, configured: reallyConfigured } = useDashboardClient();
 
+  // A demo session has no real Supabase auth session, so even though
+  // Supabase itself is configured, there's no RLS-visible client row to
+  // fetch — every tab should render the mock dashboard instead.
+  const configured = reallyConfigured && !forceDemo;
   const businessName = configured ? client?.name ?? BUSINESS.name : BUSINESS.name;
   const businessPlan = configured ? client?.plan ?? BUSINESS.plan : BUSINESS.plan;
-  const clientId = client?.id ?? null;
+  const clientId = configured ? client?.id ?? null : null;
   const noClientLinked = configured && !loading && !client;
 
   const content = useMemo(() => {

@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabase/client";
 import { DEMO_ACCOUNT } from "./mock-data";
 
 interface LoginScreenProps {
-  onLogin: () => void;
+  onLogin: (opts?: { demo?: boolean }) => void;
 }
 
 export function LoginScreen({ onLogin }: LoginScreenProps) {
@@ -22,9 +22,18 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
     }
     setLoading(true);
 
+    // The demo account always works locally, whether or not Supabase is
+    // configured — it's a fixed shortcut into the mock-data dashboard, not
+    // a real account, so it must never be routed through real auth.
+    const isDemoCredentials = email.trim().toLowerCase() === DEMO_ACCOUNT.email && password === DEMO_ACCOUNT.password;
+    if (isDemoCredentials) {
+      setTimeout(() => onLogin({ demo: true }), 400);
+      return;
+    }
+
     // Once a Supabase project is connected (dashboard-live-setup.md Phase 2)
-    // this authenticates for real; until then it falls back to the demo
-    // account so the dashboard stays usable.
+    // this authenticates for real; until then it falls back to a
+    // demo-credentials-only error so the dashboard stays testable.
     if (supabase) {
       const { error: authError } = await supabase.auth.signInWithPassword({ email, password });
       if (authError) {
@@ -37,12 +46,8 @@ export function LoginScreen({ onLogin }: LoginScreenProps) {
     }
 
     setTimeout(() => {
-      if (email.trim().toLowerCase() === DEMO_ACCOUNT.email && password === DEMO_ACCOUNT.password) {
-        onLogin();
-      } else {
-        setError("That email and password don't match. Try the demo credentials below.");
-        setLoading(false);
-      }
+      setError("That email and password don't match. Try the demo credentials below.");
+      setLoading(false);
     }, 550);
   };
 
