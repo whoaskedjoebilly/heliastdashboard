@@ -69,8 +69,23 @@ export function useDashboardClient() {
   return { client, loading, configured: supabase !== null };
 }
 
-export type RangeKey = "7d" | "30d" | "90d";
-const RANGE_DAYS: Record<RangeKey, number> = { "7d": 7, "30d": 30, "90d": 90 };
+export type RangeKey = "today" | "yesterday" | "7d" | "30d" | "90d";
+
+interface RangeConfig {
+  /** Number of days the window spans. */
+  length: number;
+  /** How many days back from today the window's END sits — 0 for windows
+   * ending today, 1 for "yesterday" (which must exclude today). */
+  endOffset: number;
+}
+
+export const RANGE_CONFIG: Record<RangeKey, RangeConfig> = {
+  today: { length: 1, endOffset: 0 },
+  yesterday: { length: 1, endOffset: 1 },
+  "7d": { length: 7, endOffset: 0 },
+  "30d": { length: 30, endOffset: 0 },
+  "90d": { length: 90, endOffset: 0 },
+};
 
 interface OverviewData {
   sessionsTotal: number;
@@ -191,14 +206,19 @@ export function useOverviewData(clientId: string | null, range: RangeKey = "30d"
   }, [clientId]);
 
   const data = useMemo<OverviewData>(() => {
-    const days = RANGE_DAYS[range];
+    const { length, endOffset } = RANGE_CONFIG[range];
+    const dateStr = (d: Date) => d.toISOString().slice(0, 10);
+    const addDays = (d: Date, n: number) => {
+      const copy = new Date(d);
+      copy.setDate(copy.getDate() + n);
+      return copy;
+    };
+
     const today = new Date();
-    const sinceCurrent = new Date(today);
-    sinceCurrent.setDate(sinceCurrent.getDate() - days);
-    const sinceCurrentStr = sinceCurrent.toISOString().slice(0, 10);
-    const sincePrior = new Date(today);
-    sincePrior.setDate(sincePrior.getDate() - days * 2);
-    const sincePriorStr = sincePrior.toISOString().slice(0, 10);
+    const currentEndStr = dateStr(addDays(today, -endOffset));
+    const currentStartStr = dateStr(addDays(today, -endOffset - (length - 1)));
+    const priorEndStr = dateStr(addDays(today, -endOffset - length));
+    const priorStartStr = dateStr(addDays(today, -endOffset - 2 * length));
 
     const byDate = new Map<string, number>();
     const byDateConversions = new Map<string, number>();
@@ -208,13 +228,13 @@ export function useOverviewData(clientId: string | null, range: RangeKey = "30d"
     let priorSessionsTotal = 0;
     let priorConversionsTotal = 0;
     for (const row of raw.trafficRows) {
-      if (row.date >= sinceCurrentStr) {
+      if (row.date >= currentStartStr && row.date <= currentEndStr) {
         byDate.set(row.date, (byDate.get(row.date) ?? 0) + (row.sessions ?? 0));
         byDateConversions.set(row.date, (byDateConversions.get(row.date) ?? 0) + (row.conversions ?? 0));
         byChannel.set(row.channel ?? "Other", (byChannel.get(row.channel ?? "Other") ?? 0) + (row.sessions ?? 0));
         sessionsTotal += row.sessions ?? 0;
         conversionsTotal += row.conversions ?? 0;
-      } else if (row.date >= sincePriorStr) {
+      } else if (row.date >= priorStartStr && row.date <= priorEndStr) {
         priorSessionsTotal += row.sessions ?? 0;
         priorConversionsTotal += row.conversions ?? 0;
       }

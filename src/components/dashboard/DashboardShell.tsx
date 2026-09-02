@@ -99,9 +99,17 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
             <p className="topbar-sub">{businessName} · performance dashboard</p>
           </div>
           <div className="range-toggle">
-            {(["7d", "30d", "90d"] as const).map((r) => (
+            {(
+              [
+                ["today", "Today"],
+                ["yesterday", "Yesterday"],
+                ["7d", "7d"],
+                ["30d", "30d"],
+                ["90d", "90d"],
+              ] as const
+            ).map(([r, label]) => (
               <button key={r} className={range === r ? "active" : ""} onClick={() => setRange(r)}>
-                {r}
+                {label}
               </button>
             ))}
           </div>

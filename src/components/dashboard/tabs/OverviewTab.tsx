@@ -7,25 +7,31 @@ import { MetricHero } from "../ui/MetricHero";
 import { Delta } from "../ui/Delta";
 import { StatusDot } from "../ui/StatusDot";
 import { DonutChannelChart } from "../ui/DonutChannelChart";
-import { CAMPAIGNS, CHANNEL_SPLIT, CONVERSIONS_LONG, KEYWORDS, TRAFFIC_LONG, windowMetrics, type RangeDays } from "../mock-data";
+import { CAMPAIGNS, CHANNEL_SPLIT, CONVERSIONS_LONG, KEYWORDS, TRAFFIC_LONG, windowMetrics } from "../mock-data";
 import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
-import { useOverviewData, type RangeKey } from "@/lib/dashboard-data";
+import { useOverviewData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
 
 interface OverviewTabProps extends TabDataProps {
   range: RangeKey;
 }
 
-const RANGE_DAYS: Record<RangeKey, RangeDays> = { "7d": 7, "30d": 30, "90d": 90 };
-const RANGE_LABEL: Record<RangeKey, string> = { "7d": "7d", "30d": "30d", "90d": "90d" };
+// Display strings for the hero cards — "Sessions (Today)" / "vs yesterday",
+// etc. RANGE_CONFIG (lib/dashboard-data.ts) owns the actual window math.
+const RANGE_META: Record<RangeKey, { suffix: string; deltaLabel: string }> = {
+  today: { suffix: "Today", deltaLabel: "vs yesterday" },
+  yesterday: { suffix: "Yesterday", deltaLabel: "vs day before" },
+  "7d": { suffix: "7d", deltaLabel: "vs prior 7d" },
+  "30d": { suffix: "30d", deltaLabel: "vs prior 30d" },
+  "90d": { suffix: "90d", deltaLabel: "vs prior 90d" },
+};
 
 export function OverviewTab({ configured, clientId, clientLoading, range }: OverviewTabProps) {
   const { data, loading } = useOverviewData(clientId, range);
-  const days = RANGE_DAYS[range];
-  const rangeLabel = RANGE_LABEL[range];
+  const { suffix: rangeLabel, deltaLabel } = RANGE_META[range];
 
-  const mockSessions = windowMetrics(TRAFFIC_LONG, days);
-  const mockConversions = windowMetrics(CONVERSIONS_LONG, days);
+  const mockSessions = windowMetrics(TRAFFIC_LONG, RANGE_CONFIG[range]);
+  const mockConversions = windowMetrics(CONVERSIONS_LONG, RANGE_CONFIG[range]);
 
   const heroMetrics = configured
     ? {
@@ -62,7 +68,7 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
         <MetricHero
           label={`Sessions (${rangeLabel})`}
           value={heroMetrics.sessions}
-          deltaLabel={`vs prior ${rangeLabel}`}
+          deltaLabel={deltaLabel}
           deltaValue={heroMetrics.sessionsDelta}
           icon={<Activity size={16} />}
           color="#3ef28c"
@@ -71,7 +77,7 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
         <MetricHero
           label="Conversions"
           value={heroMetrics.conversions}
-          deltaLabel={`vs prior ${rangeLabel}`}
+          deltaLabel={deltaLabel}
           deltaValue={heroMetrics.conversionsDelta}
           icon={<CheckCircle2 size={16} />}
           color="#4ea8ff"
@@ -81,7 +87,7 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
           label="Ad spend"
           value={heroMetrics.adSpend}
           prefix="$"
-          deltaLabel={`vs prior ${rangeLabel}`}
+          deltaLabel={deltaLabel}
           deltaValue={0}
           invert
           icon={<DollarSign size={16} />}
@@ -92,7 +98,7 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
           value={heroMetrics.roas}
           suffix="×"
           decimals={1}
-          deltaLabel={`vs prior ${rangeLabel}`}
+          deltaLabel={deltaLabel}
           deltaValue={0}
           icon={<Target size={16} />}
           color="#c084fc"
