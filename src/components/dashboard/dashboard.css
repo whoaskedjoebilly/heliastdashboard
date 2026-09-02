@@ -1064,10 +1064,11 @@ nav {
   transform: scale(1.06);
 }
 .ai-fab-open {
-  background: var(--glass-bg-raised);
+  background: rgba(15, 24, 19, 0.95);
   color: var(--text);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
+  transform: translateZ(0);
   border: 1px solid var(--glass-border);
   box-shadow: var(--glass-shadow);
 }
@@ -1080,9 +1081,14 @@ nav {
   height: min(560px, calc(100vh - 140px));
   display: flex;
   flex-direction: column;
-  background: var(--glass-bg-raised);
+  /* Opaque-first: some mobile browsers (notably iOS Safari) fail to
+     composite backdrop-filter on fixed-position elements, leaving only
+     the background color. A near-solid background keeps the panel
+     legible either way; blur is layered on top as an enhancement. */
+  background: rgba(15, 24, 19, 0.95);
   backdrop-filter: blur(var(--glass-blur));
   -webkit-backdrop-filter: blur(var(--glass-blur));
+  transform: translateZ(0);
   border: 1px solid var(--glass-border);
   border-radius: 16px;
   box-shadow: var(--glass-shadow);
