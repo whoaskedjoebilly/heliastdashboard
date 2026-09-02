@@ -34,8 +34,35 @@ export function genTrend(days: number, base: number, drift: number, noise: numbe
   return out;
 }
 
-export const TRAFFIC: TrendPoint[] = genTrend(30, 420, 4.5, 60);
-export const CONVERSIONS: TrendPoint[] = genTrend(30, 14, 0.15, 5);
+// 180-day canonical series so the 7d/30d/90d range toggle has a real prior
+// window to compare against even at the 90-day setting (90d current +
+// 90d prior = 180d of history needed).
+export const TRAFFIC_LONG: TrendPoint[] = genTrend(180, 420, 2.4, 55);
+export const CONVERSIONS_LONG: TrendPoint[] = genTrend(180, 11, 0.035, 3.6);
+
+export const TRAFFIC: TrendPoint[] = TRAFFIC_LONG.slice(-30);
+export const CONVERSIONS: TrendPoint[] = CONVERSIONS_LONG.slice(-30);
+
+export type RangeDays = 7 | 30 | 90;
+
+export interface RangeWindow {
+  trend: TrendPoint[];
+  total: number;
+  deltaPct: number;
+}
+
+/** Slices a long trend series into the current N-day window and computes
+ * its total plus % change against the prior N-day window — used to make
+ * the 7d/30d/90d range toggle show genuinely different numbers instead of
+ * the same fixed window regardless of selection. */
+export function windowMetrics(long: TrendPoint[], days: RangeDays): RangeWindow {
+  const current = long.slice(-days);
+  const prior = long.slice(-2 * days, -days);
+  const total = current.reduce((a, p) => a + p.value, 0);
+  const priorTotal = prior.reduce((a, p) => a + p.value, 0);
+  const deltaPct = priorTotal === 0 ? (total > 0 ? 100 : 0) : Math.round(((total - priorTotal) / priorTotal) * 1000) / 10;
+  return { trend: current, total, deltaPct };
+}
 
 export const CHANNEL_SPLIT: ChannelSplit[] = [
   { channel: "Organic search", value: 44 },

@@ -7,27 +7,46 @@ import { MetricHero } from "../ui/MetricHero";
 import { Delta } from "../ui/Delta";
 import { StatusDot } from "../ui/StatusDot";
 import { DonutChannelChart } from "../ui/DonutChannelChart";
-import { CAMPAIGNS, CHANNEL_SPLIT, CONVERSIONS, KEYWORDS, TRAFFIC } from "../mock-data";
+import { CAMPAIGNS, CHANNEL_SPLIT, CONVERSIONS_LONG, KEYWORDS, TRAFFIC_LONG, windowMetrics, type RangeDays } from "../mock-data";
 import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
-import { useOverviewData } from "@/lib/dashboard-data";
+import { useOverviewData, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
 
-export function OverviewTab({ configured, clientId, clientLoading }: TabDataProps) {
-  const { data, loading } = useOverviewData(clientId);
+interface OverviewTabProps extends TabDataProps {
+  range: RangeKey;
+}
+
+const RANGE_DAYS: Record<RangeKey, RangeDays> = { "7d": 7, "30d": 30, "90d": 90 };
+const RANGE_LABEL: Record<RangeKey, string> = { "7d": "7d", "30d": "30d", "90d": "90d" };
+
+export function OverviewTab({ configured, clientId, clientLoading, range }: OverviewTabProps) {
+  const { data, loading } = useOverviewData(clientId, range);
+  const days = RANGE_DAYS[range];
+  const rangeLabel = RANGE_LABEL[range];
+
+  const mockSessions = windowMetrics(TRAFFIC_LONG, days);
+  const mockConversions = windowMetrics(CONVERSIONS_LONG, days);
 
   const heroMetrics = configured
     ? {
-        sessions: data.sessions30d,
+        sessions: data.sessionsTotal,
         sessionsDelta: data.sessionsDeltaPct,
-        conversions: data.conversions30d,
+        conversions: data.conversionsTotal,
         conversionsDelta: data.conversionsDeltaPct,
-        adSpend: data.adSpend30d,
+        adSpend: data.adSpendTotal,
         roas: data.blendedRoas,
       }
-    : { sessions: 12480, sessionsDelta: 9, conversions: 318, conversionsDelta: 14, adSpend: 4630, roas: 3.6 };
+    : {
+        sessions: mockSessions.total,
+        sessionsDelta: mockSessions.deltaPct,
+        conversions: mockConversions.total,
+        conversionsDelta: mockConversions.deltaPct,
+        adSpend: 4630,
+        roas: 3.6,
+      };
 
-  const traffic = configured ? data.traffic : TRAFFIC;
-  const conversionsTrend = configured ? data.conversionsTrend : CONVERSIONS;
+  const traffic = configured ? data.traffic : mockSessions.trend;
+  const conversionsTrend = configured ? data.conversionsTrend : mockConversions.trend;
   const channelSplit = configured ? data.channelSplit : CHANNEL_SPLIT;
   const keywords = configured ? data.topKeywords : KEYWORDS;
   const campaigns = configured ? data.campaigns : CAMPAIGNS;
@@ -41,9 +60,9 @@ export function OverviewTab({ configured, clientId, clientLoading }: TabDataProp
     <>
       <div className="hero-row">
         <MetricHero
-          label="Sessions (30d)"
+          label={`Sessions (${rangeLabel})`}
           value={heroMetrics.sessions}
-          deltaLabel="vs prior 30d"
+          deltaLabel={`vs prior ${rangeLabel}`}
           deltaValue={heroMetrics.sessionsDelta}
           icon={<Activity size={16} />}
           color="#3ef28c"
@@ -52,7 +71,7 @@ export function OverviewTab({ configured, clientId, clientLoading }: TabDataProp
         <MetricHero
           label="Conversions"
           value={heroMetrics.conversions}
-          deltaLabel="vs prior 30d"
+          deltaLabel={`vs prior ${rangeLabel}`}
           deltaValue={heroMetrics.conversionsDelta}
           icon={<CheckCircle2 size={16} />}
           color="#4ea8ff"
@@ -62,7 +81,7 @@ export function OverviewTab({ configured, clientId, clientLoading }: TabDataProp
           label="Ad spend"
           value={heroMetrics.adSpend}
           prefix="$"
-          deltaLabel="vs prior 30d"
+          deltaLabel={`vs prior ${rangeLabel}`}
           deltaValue={0}
           invert
           icon={<DollarSign size={16} />}
@@ -73,7 +92,7 @@ export function OverviewTab({ configured, clientId, clientLoading }: TabDataProp
           value={heroMetrics.roas}
           suffix="×"
           decimals={1}
-          deltaLabel="vs prior 30d"
+          deltaLabel={`vs prior ${rangeLabel}`}
           deltaValue={0}
           icon={<Target size={16} />}
           color="#c084fc"
@@ -96,7 +115,13 @@ export function OverviewTab({ configured, clientId, clientLoading }: TabDataProp
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
-                <XAxis dataKey="date" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} interval={6} />
+                <XAxis
+                  dataKey="date"
+                  tick={chartAxisTick}
+                  axisLine={chartAxisLine}
+                  tickLine={false}
+                  interval={Math.max(0, Math.ceil(traffic.length / 6) - 1)}
+                />
                 <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={40} />
                 <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
                 <Area type="monotone" dataKey="value" stroke="#3EF28C" strokeWidth={2} fill="url(#trafficFill)" />

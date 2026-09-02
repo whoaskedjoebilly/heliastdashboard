@@ -10,7 +10,7 @@ import { LiveTab } from "./tabs/LiveTab";
 import { ReportsTab } from "./tabs/ReportsTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 import { AiAssistant } from "./AiAssistant";
-import { useDashboardClient, useSavedReports } from "@/lib/dashboard-data";
+import { useDashboardClient, useSavedReports, type RangeKey } from "@/lib/dashboard-data";
 
 interface DashboardShellProps {
   onLogout: () => void;
@@ -34,7 +34,7 @@ type TabId = (typeof NAV)[number]["id"];
 
 export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
   const [tab, setTab] = useState<TabId>("overview");
-  const [range, setRange] = useState("30d");
+  const [range, setRange] = useState<RangeKey>("30d");
   const { client, loading, configured: reallyConfigured } = useDashboardClient();
 
   // A demo session has no real Supabase auth session, so even though
@@ -56,14 +56,14 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
         </div>
       );
     }
-    if (tab === "overview") return <OverviewTab configured={configured} clientId={clientId} clientLoading={loading} />;
+    if (tab === "overview") return <OverviewTab configured={configured} clientId={clientId} clientLoading={loading} range={range} />;
     if (tab === "seo") return <SeoTab configured={configured} clientId={clientId} clientLoading={loading} />;
     if (tab === "ads") return <AdsTab configured={configured} clientId={clientId} clientLoading={loading} />;
     if (tab === "social") return <SocialTab configured={configured} clientId={clientId} clientLoading={loading} />;
     if (tab === "live") return <LiveTab configured={configured} clientId={clientId} clientLoading={loading} />;
     if (tab === "reports") return <ReportsTab configured={configured} reports={reports} loading={reportsLoading} deleteReport={deleteReport} />;
     return <SettingsTab onLogout={onLogout} businessName={businessName} businessPlan={businessPlan} clientId={clientId} />;
-  }, [tab, onLogout, configured, clientId, loading, noClientLinked, businessName, businessPlan, reports, reportsLoading, deleteReport]);
+  }, [tab, onLogout, configured, clientId, loading, noClientLinked, businessName, businessPlan, reports, reportsLoading, deleteReport, range]);
 
   const title = NAV.find((n) => n.id === tab)?.label ?? "Overview";
 

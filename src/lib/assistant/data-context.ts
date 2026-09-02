@@ -126,6 +126,17 @@ function lastNDates(n: number): string[] {
 
 const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
 const pctChange = (current: number, prior: number) => (prior === 0 ? 0 : Math.round(((current - prior) / prior) * 100));
+const signed = (n: number) => `${n >= 0 ? "+" : ""}${n}%`;
+
+/** Precomputed totals for a window, so the assistant doesn't have to do
+ * mental arithmetic over dozens of rows to answer "how's the last 7/30/90
+ * days looking" — it can just read the number off, same windows the
+ * dashboard's own 7d/30d/90d toggle uses. */
+function summarizeWindow(label: string, values: number[], days: number, unit: string): string {
+  const current = sum(values.slice(-days));
+  const prior = sum(values.slice(-2 * days, -days));
+  return `${label}: ${current} ${unit} (${signed(pctChange(current, prior))} vs prior ${days}d)`;
+}
 
 /** Builds a digest with real day-by-day rows (same shape as
  * buildClientDataDigest) from the dashboard's built-in demo/mock data, used
@@ -133,29 +144,37 @@ const pctChange = (current: number, prior: number) => (prior === 0 ? 0 : Math.ro
  * real Supabase client row to query, but the assistant still needs actual
  * daily numbers to answer things like "growth in the last 3 days". */
 export function buildDemoDataDigest(): string {
-  const days = 90;
-  const dates = lastNDates(days);
-  const sessions = genDailySeries(days, 380, 0.6, 55, 1);
-  const conversions = genDailySeries(days, 9, 0.05, 3, 2);
+  // Generate 180 days internally so a true "last 90 vs prior 90" comparison
+  // is possible, but only print the most recent 90 as raw rows — the
+  // "Quick totals" section below carries the 7d/30d/90d numbers so the
+  // assistant isn't stuck doing that arithmetic itself over ~90 rows.
+  const longDays = 180;
+  const shownDays = 90;
+  const allDates = lastNDates(longDays);
+  const allSessions = genDailySeries(longDays, 380, 0.3, 55, 1);
+  const allConversions = genDailySeries(longDays, 9, 0.025, 3, 2);
+  const dates = allDates.slice(-shownDays);
+  const sessions = allSessions.slice(-shownDays);
+  const conversions = allConversions.slice(-shownDays);
 
   const lines: string[] = [];
   lines.push(`# Client: ${BUSINESS.name} (${BUSINESS.plan} plan)`);
   lines.push("");
 
-  lines.push(`## Daily traffic (last ${days} days, ${days} rows)`);
+  lines.push("## Quick totals (precomputed — use these directly for \"last N days\" questions)");
+  lines.push(summarizeWindow("Sessions, last 7 days", allSessions, 7, "sessions"));
+  lines.push(summarizeWindow("Sessions, last 30 days", allSessions, 30, "sessions"));
+  lines.push(summarizeWindow("Sessions, last 90 days", allSessions, 90, "sessions"));
+  lines.push(summarizeWindow("Conversions, last 7 days", allConversions, 7, "conversions"));
+  lines.push(summarizeWindow("Conversions, last 30 days", allConversions, 30, "conversions"));
+  lines.push(summarizeWindow("Conversions, last 90 days", allConversions, 90, "conversions"));
+  lines.push("");
+
+  lines.push(`## Daily traffic (last ${shownDays} days, ${shownDays} rows)`);
   lines.push("date | sessions | conversions");
-  for (let i = 0; i < days; i++) {
+  for (let i = 0; i < shownDays; i++) {
     lines.push(`${dates[i]} | ${sessions[i]} | ${conversions[i]}`);
   }
-  const last30Sessions = sum(sessions.slice(-30));
-  const prior30Sessions = sum(sessions.slice(-60, -30));
-  const last30Conversions = sum(conversions.slice(-30));
-  const prior30Conversions = sum(conversions.slice(-60, -30));
-  lines.push("");
-  lines.push(
-    `Last 30 days total: ${last30Sessions} sessions (${pctChange(last30Sessions, prior30Sessions) >= 0 ? "+" : ""}${pctChange(last30Sessions, prior30Sessions)}% vs prior 30d), ` +
-      `${last30Conversions} conversions (${pctChange(last30Conversions, prior30Conversions) >= 0 ? "+" : ""}${pctChange(last30Conversions, prior30Conversions)}% vs prior 30d).`
-  );
   lines.push("");
 
   lines.push(`## Keyword rankings (most recent ${KEYWORDS.length} readings)`);
@@ -172,13 +191,14 @@ export function buildDemoDataDigest(): string {
   }
   lines.push("");
 
-  lines.push(`## Daily social stats (last ${days} days, ${days * SOCIAL_PLATFORMS.length} rows)`);
+  lines.push(`## Daily social stats (last ${shownDays} days, ${shownDays * SOCIAL_PLATFORMS.length} rows)`);
   lines.push("date | platform | followers | engagement_rate");
   SOCIAL_PLATFORMS.forEach((p, idx) => {
     const base = Math.round(p.followers * 0.85);
-    const drift = (p.followers - base) / days;
-    const followers = genDailySeries(days, base, drift, Math.max(3, base * 0.004), 100 + idx * 7);
-    for (let i = 0; i < days; i++) {
+    const drift = (p.followers - base) / longDays;
+    const allFollowers = genDailySeries(longDays, base, drift, Math.max(3, base * 0.004), 100 + idx * 7);
+    const followers = allFollowers.slice(-shownDays);
+    for (let i = 0; i < shownDays; i++) {
       lines.push(`${dates[i]} | ${p.platform} | ${followers[i]} | ${p.engagement}%`);
     }
   });

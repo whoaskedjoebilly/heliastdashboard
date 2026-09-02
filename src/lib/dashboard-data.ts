@@ -5,7 +5,7 @@
 // to the logged-in client via owner_user_id = auth.uid()) and shapes the
 // result into the same props the tab components already render. Falls back
 // to "not configured" when Supabase isn't wired up (see supabase/client.ts).
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase/client";
 import type {
   CampaignRow,
@@ -69,12 +69,15 @@ export function useDashboardClient() {
   return { client, loading, configured: supabase !== null };
 }
 
+export type RangeKey = "7d" | "30d" | "90d";
+const RANGE_DAYS: Record<RangeKey, number> = { "7d": 7, "30d": 30, "90d": 90 };
+
 interface OverviewData {
-  sessions30d: number;
-  conversions30d: number;
+  sessionsTotal: number;
+  conversionsTotal: number;
   sessionsDeltaPct: number;
   conversionsDeltaPct: number;
-  adSpend30d: number;
+  adSpendTotal: number;
   blendedRoas: number;
   traffic: TrendPoint[];
   conversionsTrend: TrendPoint[];
@@ -83,28 +86,33 @@ interface OverviewData {
   campaigns: CampaignRow[];
 }
 
-const EMPTY_OVERVIEW: OverviewData = {
-  sessions30d: 0,
-  conversions30d: 0,
-  sessionsDeltaPct: 0,
-  conversionsDeltaPct: 0,
-  adSpend30d: 0,
-  blendedRoas: 0,
-  traffic: [],
-  conversionsTrend: [],
-  channelSplit: [],
-  topKeywords: [],
-  campaigns: [],
-};
-
 function pctDelta(current: number, prior: number): number {
   if (prior === 0) return current > 0 ? 100 : 0;
   return Math.round(((current - prior) / prior) * 1000) / 10;
 }
 
-/** Aggregates daily_traffic + keyword_rankings + ad_campaigns for the Overview tab. */
-export function useOverviewData(clientId: string | null) {
-  const [data, setData] = useState<OverviewData>(EMPTY_OVERVIEW);
+interface RawTrafficRow {
+  date: string;
+  sessions: number | null;
+  conversions: number | null;
+  channel: string | null;
+}
+
+interface RawOverview {
+  trafficRows: RawTrafficRow[];
+  topKeywords: KeywordRow[];
+  campaigns: CampaignRow[];
+}
+
+const EMPTY_RAW: RawOverview = { trafficRows: [], topKeywords: [], campaigns: [] };
+
+/** Aggregates daily_traffic + keyword_rankings + ad_campaigns for the Overview
+ * tab. Fetches 180 days once per client (enough history for a 90-day window
+ * plus its 90-day prior comparison period) and re-derives the displayed
+ * totals/trend/channel split client-side whenever `range` changes, so
+ * switching the 7d/30d/90d toggle doesn't require a refetch. */
+export function useOverviewData(clientId: string | null, range: RangeKey = "30d") {
+  const [raw, setRaw] = useState<RawOverview>(EMPTY_RAW);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -115,19 +123,16 @@ export function useOverviewData(clientId: string | null) {
 
     (async () => {
       setLoading(true);
-      const since60 = new Date();
-      since60.setDate(since60.getDate() - 60);
-      const since60Str = since60.toISOString().slice(0, 10);
-      const since30 = new Date();
-      since30.setDate(since30.getDate() - 30);
-      const since30Str = since30.toISOString().slice(0, 10);
+      const since180 = new Date();
+      since180.setDate(since180.getDate() - 180);
+      const since180Str = since180.toISOString().slice(0, 10);
 
       const [trafficRes, keywordsRes, campaignsRes] = await Promise.all([
         supabase
           .from("dashboard_daily_traffic")
           .select("date, sessions, conversions, channel")
           .eq("client_id", clientId)
-          .gte("date", since60Str)
+          .gte("date", since180Str)
           .order("date", { ascending: true }),
         supabase
           .from("dashboard_keyword_rankings")
@@ -147,42 +152,6 @@ export function useOverviewData(clientId: string | null) {
       if (trafficRes.error) console.error("Failed to load traffic", trafficRes.error);
       if (keywordsRes.error) console.error("Failed to load keywords", keywordsRes.error);
       if (campaignsRes.error) console.error("Failed to load campaigns", campaignsRes.error);
-
-      const trafficRows = trafficRes.data ?? [];
-      const byDate = new Map<string, number>();
-      const byDateConversions = new Map<string, number>();
-      const byChannel = new Map<string, number>();
-      let sessions30d = 0;
-      let conversions30d = 0;
-      let priorSessions30d = 0;
-      let priorConversions30d = 0;
-      for (const row of trafficRows) {
-        const inLast30 = row.date >= since30Str;
-        if (inLast30) {
-          byDate.set(row.date, (byDate.get(row.date) ?? 0) + (row.sessions ?? 0));
-          byDateConversions.set(row.date, (byDateConversions.get(row.date) ?? 0) + (row.conversions ?? 0));
-          byChannel.set(row.channel ?? "Other", (byChannel.get(row.channel ?? "Other") ?? 0) + (row.sessions ?? 0));
-          sessions30d += row.sessions ?? 0;
-          conversions30d += row.conversions ?? 0;
-        } else {
-          priorSessions30d += row.sessions ?? 0;
-          priorConversions30d += row.conversions ?? 0;
-        }
-      }
-      const traffic: TrendPoint[] = Array.from(byDate.entries())
-        .sort(([a], [b]) => (a < b ? -1 : 1))
-        .map(([date, value]) => ({ date: formatDay(date), value }));
-      const conversionsTrend: TrendPoint[] = Array.from(byDateConversions.entries())
-        .sort(([a], [b]) => (a < b ? -1 : 1))
-        .map(([date, value]) => ({ date: formatDay(date), value }));
-
-      const channelTotal = Array.from(byChannel.values()).reduce((a, b) => a + b, 0);
-      const channelSplit: ChannelSplit[] = Array.from(byChannel.entries())
-        .map(([channel, value]) => ({
-          channel,
-          value: channelTotal > 0 ? Math.round((value / channelTotal) * 100) : 0,
-        }))
-        .sort((a, b) => b.value - a.value);
 
       // Latest reading per keyword, plus the prior reading (if any) for delta.
       const keywordHistory = new Map<string, { position: number; search_volume: number }[]>();
@@ -212,23 +181,7 @@ export function useOverviewData(clientId: string | null) {
         status: c.status === "watch" ? "watch" : "healthy",
       }));
 
-      const adSpend30d = campaigns.reduce((a, c) => a + c.spend, 0);
-      const roasWeighted = campaigns.reduce((a, c) => a + c.roas * c.spend, 0);
-      const blendedRoas = adSpend30d > 0 ? roasWeighted / adSpend30d : 0;
-
-      setData({
-        sessions30d,
-        conversions30d,
-        sessionsDeltaPct: pctDelta(sessions30d, priorSessions30d),
-        conversionsDeltaPct: pctDelta(conversions30d, priorConversions30d),
-        adSpend30d,
-        blendedRoas,
-        traffic,
-        conversionsTrend,
-        channelSplit,
-        topKeywords,
-        campaigns,
-      });
+      setRaw({ trafficRows: trafficRes.data ?? [], topKeywords, campaigns });
       setLoading(false);
     })();
 
@@ -236,6 +189,69 @@ export function useOverviewData(clientId: string | null) {
       cancelled = true;
     };
   }, [clientId]);
+
+  const data = useMemo<OverviewData>(() => {
+    const days = RANGE_DAYS[range];
+    const today = new Date();
+    const sinceCurrent = new Date(today);
+    sinceCurrent.setDate(sinceCurrent.getDate() - days);
+    const sinceCurrentStr = sinceCurrent.toISOString().slice(0, 10);
+    const sincePrior = new Date(today);
+    sincePrior.setDate(sincePrior.getDate() - days * 2);
+    const sincePriorStr = sincePrior.toISOString().slice(0, 10);
+
+    const byDate = new Map<string, number>();
+    const byDateConversions = new Map<string, number>();
+    const byChannel = new Map<string, number>();
+    let sessionsTotal = 0;
+    let conversionsTotal = 0;
+    let priorSessionsTotal = 0;
+    let priorConversionsTotal = 0;
+    for (const row of raw.trafficRows) {
+      if (row.date >= sinceCurrentStr) {
+        byDate.set(row.date, (byDate.get(row.date) ?? 0) + (row.sessions ?? 0));
+        byDateConversions.set(row.date, (byDateConversions.get(row.date) ?? 0) + (row.conversions ?? 0));
+        byChannel.set(row.channel ?? "Other", (byChannel.get(row.channel ?? "Other") ?? 0) + (row.sessions ?? 0));
+        sessionsTotal += row.sessions ?? 0;
+        conversionsTotal += row.conversions ?? 0;
+      } else if (row.date >= sincePriorStr) {
+        priorSessionsTotal += row.sessions ?? 0;
+        priorConversionsTotal += row.conversions ?? 0;
+      }
+    }
+    const traffic: TrendPoint[] = Array.from(byDate.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, value]) => ({ date: formatDay(date), value }));
+    const conversionsTrend: TrendPoint[] = Array.from(byDateConversions.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, value]) => ({ date: formatDay(date), value }));
+
+    const channelTotal = Array.from(byChannel.values()).reduce((a, b) => a + b, 0);
+    const channelSplit: ChannelSplit[] = Array.from(byChannel.entries())
+      .map(([channel, value]) => ({
+        channel,
+        value: channelTotal > 0 ? Math.round((value / channelTotal) * 100) : 0,
+      }))
+      .sort((a, b) => b.value - a.value);
+
+    const adSpendTotal = raw.campaigns.reduce((a, c) => a + c.spend, 0);
+    const roasWeighted = raw.campaigns.reduce((a, c) => a + c.roas * c.spend, 0);
+    const blendedRoas = adSpendTotal > 0 ? roasWeighted / adSpendTotal : 0;
+
+    return {
+      sessionsTotal,
+      conversionsTotal,
+      sessionsDeltaPct: pctDelta(sessionsTotal, priorSessionsTotal),
+      conversionsDeltaPct: pctDelta(conversionsTotal, priorConversionsTotal),
+      adSpendTotal,
+      blendedRoas,
+      traffic,
+      conversionsTrend,
+      channelSplit,
+      topKeywords: raw.topKeywords,
+      campaigns: raw.campaigns,
+    };
+  }, [raw, range]);
 
   return { data, loading };
 }
