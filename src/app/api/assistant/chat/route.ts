@@ -1,33 +1,41 @@
 import { anthropic } from "@/lib/anthropic/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { buildClientDataDigest, DEMO_DATA_DIGEST } from "@/lib/reports/build-context";
+import { buildClientDataDigest, DEMO_DATA_DIGEST } from "@/lib/assistant/data-context";
 
 export const maxDuration = 60;
 
-const SYSTEM_PROMPT = `You are the reporting assistant inside the Heliast client dashboard. A
-business owner is asking you for a custom performance report. You will be
-given that business's real analytics data (traffic, SEO keywords, ad
-campaigns, social stats) as a text digest.
+const SYSTEM_PROMPT = `You are Heliast's AI assistant, built on Claude, embedded in a client's
+marketing performance dashboard (SEO, ads, social, traffic). The business
+owner can ask you anything about their own performance data, including
+specific time windows (e.g. "growth in the last 3 days") — the data below
+already covers the last 90 days at daily granularity, so compute exact
+answers from it directly rather than only reporting pre-aggregated totals.
 
 Rules:
-- Base the report ONLY on the data provided below. Never invent numbers,
-  campaigns, or keywords that aren't in the digest.
-- If the data needed to answer isn't present (e.g. asked about a channel
+- Base every answer ONLY on the data provided below. Never invent numbers,
+  campaigns, or keywords that aren't in it.
+- If the data needed to answer isn't present (e.g. a time range or metric
   with no rows), say so plainly instead of guessing.
-- Write in clear, well-formatted markdown: a short summary first, then
-  supporting detail (tables/bullet points as appropriate).
-- Keep it focused on what was actually asked — don't dump every metric
-  into every report.`;
+- Keep answers conversational and concise for quick questions; write
+  longer, well-formatted markdown (headers, tables, bullets) when asked
+  for something report-like ("write me a report on...", "summarize...").
+- You are Claude (Anthropic) — if asked what model or AI you are, say so
+  plainly.`;
+
+interface ChatMessage {
+  role: "user" | "assistant";
+  content: string;
+}
 
 export async function POST(req: Request) {
   if (!anthropic) {
     return new Response("ANTHROPIC_API_KEY is not configured", { status: 500 });
   }
 
-  const body = (await req.json()) as { prompt?: string; demo?: boolean };
-  const userPrompt = body.prompt?.trim();
-  if (!userPrompt) {
-    return new Response("Missing prompt", { status: 400 });
+  const body = (await req.json()) as { messages?: ChatMessage[]; demo?: boolean };
+  const messages = body.messages;
+  if (!messages || messages.length === 0 || messages[messages.length - 1].role !== "user") {
+    return new Response("messages must be a non-empty array ending in a user message", { status: 400 });
   }
 
   let digest: string;
@@ -62,17 +70,12 @@ export async function POST(req: Request) {
   const claudeStream = anthropic.messages.stream({
     model: "claude-opus-5",
     max_tokens: 8000,
-    system: SYSTEM_PROMPT,
-    messages: [
-      {
-        role: "user",
-        content: `Here is this business's current data:\n\n${digest}\n\n---\n\nReport request: ${userPrompt}`,
-      },
-    ],
+    system: `${SYSTEM_PROMPT}\n\n---\n\nCurrent data:\n\n${digest}`,
+    messages: messages.map((m) => ({ role: m.role, content: m.content })),
   });
 
   const encoder = new TextEncoder();
-  const body_ = new ReadableStream({
+  const stream = new ReadableStream({
     async start(controller) {
       claudeStream.on("text", (text) => {
         controller.enqueue(encoder.encode(text));
@@ -90,5 +93,5 @@ export async function POST(req: Request) {
     },
   });
 
-  return new Response(body_, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
+  return new Response(stream, { headers: { "Content-Type": "text/plain; charset=utf-8" } });
 }

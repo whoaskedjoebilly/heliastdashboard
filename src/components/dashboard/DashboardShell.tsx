@@ -9,7 +9,8 @@ import { SocialTab } from "./tabs/SocialTab";
 import { LiveTab } from "./tabs/LiveTab";
 import { ReportsTab } from "./tabs/ReportsTab";
 import { SettingsTab } from "./tabs/SettingsTab";
-import { useDashboardClient } from "@/lib/dashboard-data";
+import { AiAssistant } from "./AiAssistant";
+import { useDashboardClient, useSavedReports } from "@/lib/dashboard-data";
 
 interface DashboardShellProps {
   onLogout: () => void;
@@ -44,6 +45,7 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
   const businessPlan = configured ? client?.plan ?? BUSINESS.plan : BUSINESS.plan;
   const clientId = configured ? client?.id ?? null : null;
   const noClientLinked = configured && !loading && !client;
+  const { reports, loading: reportsLoading, saveReport, deleteReport } = useSavedReports(clientId);
 
   const content = useMemo(() => {
     if (noClientLinked) {
@@ -59,9 +61,9 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
     if (tab === "ads") return <AdsTab configured={configured} clientId={clientId} clientLoading={loading} />;
     if (tab === "social") return <SocialTab configured={configured} clientId={clientId} clientLoading={loading} />;
     if (tab === "live") return <LiveTab configured={configured} clientId={clientId} clientLoading={loading} />;
-    if (tab === "reports") return <ReportsTab configured={configured} clientId={clientId} clientLoading={loading} />;
+    if (tab === "reports") return <ReportsTab configured={configured} reports={reports} loading={reportsLoading} deleteReport={deleteReport} />;
     return <SettingsTab onLogout={onLogout} businessName={businessName} businessPlan={businessPlan} clientId={clientId} />;
-  }, [tab, onLogout, configured, clientId, loading, noClientLinked, businessName, businessPlan]);
+  }, [tab, onLogout, configured, clientId, loading, noClientLinked, businessName, businessPlan, reports, reportsLoading, deleteReport]);
 
   const title = NAV.find((n) => n.id === tab)?.label ?? "Overview";
 
@@ -107,6 +109,8 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
 
         <div className="content">{content}</div>
       </main>
+
+      <AiAssistant configured={configured} clientId={clientId} businessName={businessName} saveReport={saveReport} />
     </div>
   );
 }

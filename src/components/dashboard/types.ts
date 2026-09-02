@@ -76,3 +76,7 @@ export interface TabDataProps {
   clientId: string | null;
   clientLoading: boolean;
 }
+
+/** Signature of useSavedReports().saveReport — shared by ReportsTab and the
+ * floating AiAssistant, both of which save into the same lifted state. */
+export type SavedReportSaver = (title: string, prompt: string, content: string) => Promise<{ error: string | null }>;
