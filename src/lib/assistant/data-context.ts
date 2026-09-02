@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { BUSINESS, CAMPAIGNS, KEYWORDS, SOCIAL_PLATFORMS } from "@/components/dashboard/mock-data";
 
 /** Fetches everything about one client from the dashboard_* tables and
  * serializes it into a compact text digest for a Claude prompt. Always
@@ -93,30 +94,94 @@ export async function buildClientDataDigest(db: SupabaseClient, clientId: string
   return lines.join("\n");
 }
 
-/** Small hand-written digest matching the dashboard's built-in demo/mock
- * data, used when a demo-account session asks for a report (no real
- * Supabase client row exists to query). */
-export const DEMO_DATA_DIGEST = `# Client: MigraineMend (Premium plan)
+// Deterministic pseudo-random in [0, 1), seeded by a plain number — keeps
+// the demo digest's daily rows stable across requests (so prompt caching
+// still hits, and answers don't shift between turns of the same chat)
+// without needing to persist generated data anywhere.
+function pseudoRandom(seed: number): number {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
 
-## Overview (last 30 days)
-Sessions: 12,480 (+9% vs prior 30d). Conversions: 318 (+14% vs prior 30d).
-Ad spend: $4,630 (-6% vs prior 30d). Blended ROAS: 3.6x.
-Traffic channel split: Organic search 44%, Paid social 27%, Paid search 18%, Direct 11%.
+function genDailySeries(days: number, base: number, drift: number, noise: number, seed: number): number[] {
+  const out: number[] = [];
+  let v = base;
+  for (let i = 0; i < days; i++) {
+    v = Math.max(0, v + drift + (pseudoRandom(seed + i) - 0.5) * noise);
+    out.push(Math.round(v));
+  }
+  return out;
+}
 
-## Top keywords
-migraine relief glasses | position 3 (+2) | volume 2.4k/mo
-fl-41 tinted glasses | position 1 (flat) | volume 1.1k/mo
-blackout sleep mask migraine | position 5 (-1) | volume 880/mo
-light sensitivity headache relief | position 8 (+4) | volume 640/mo
-best glasses for migraines | position 6 (+1) | volume 1.9k/mo
+function lastNDates(n: number): string[] {
+  const out: string[] = [];
+  const today = new Date();
+  for (let i = n - 1; i >= 0; i--) {
+    const d = new Date(today);
+    d.setUTCDate(d.getUTCDate() - i);
+    out.push(d.toISOString().slice(0, 10));
+  }
+  return out;
+}
 
-## Active campaigns
-Meta — FL-41 Retarget | Meta Ads | spend $1,240 | ROAS 4.8x | healthy
-Google — Migraine Relief Search | Google Ads | spend $2,100 | ROAS 3.2x | healthy
-Meta — Cold Prospecting | Meta Ads | spend $980 | ROAS 1.6x | needs attention
-Google — Brand Defense | Google Ads | spend $310 | ROAS 6.1x | healthy
+const sum = (values: number[]) => values.reduce((a, b) => a + b, 0);
+const pctChange = (current: number, prior: number) => (prior === 0 ? 0 : Math.round(((current - prior) / prior) * 100));
 
-## Social
-Instagram: 4,820 followers (+6.2%), 3.8% engagement
-TikTok: 2,150 followers (+14.1%), 6.4% engagement
-Facebook: 1,990 followers (+1.4%), 1.9% engagement`;
+/** Builds a digest with real day-by-day rows (same shape as
+ * buildClientDataDigest) from the dashboard's built-in demo/mock data, used
+ * when a demo-account session asks the assistant a question — there's no
+ * real Supabase client row to query, but the assistant still needs actual
+ * daily numbers to answer things like "growth in the last 3 days". */
+export function buildDemoDataDigest(): string {
+  const days = 90;
+  const dates = lastNDates(days);
+  const sessions = genDailySeries(days, 380, 0.6, 55, 1);
+  const conversions = genDailySeries(days, 9, 0.05, 3, 2);
+
+  const lines: string[] = [];
+  lines.push(`# Client: ${BUSINESS.name} (${BUSINESS.plan} plan)`);
+  lines.push("");
+
+  lines.push(`## Daily traffic (last ${days} days, ${days} rows)`);
+  lines.push("date | sessions | conversions");
+  for (let i = 0; i < days; i++) {
+    lines.push(`${dates[i]} | ${sessions[i]} | ${conversions[i]}`);
+  }
+  const last30Sessions = sum(sessions.slice(-30));
+  const prior30Sessions = sum(sessions.slice(-60, -30));
+  const last30Conversions = sum(conversions.slice(-30));
+  const prior30Conversions = sum(conversions.slice(-60, -30));
+  lines.push("");
+  lines.push(
+    `Last 30 days total: ${last30Sessions} sessions (${pctChange(last30Sessions, prior30Sessions) >= 0 ? "+" : ""}${pctChange(last30Sessions, prior30Sessions)}% vs prior 30d), ` +
+      `${last30Conversions} conversions (${pctChange(last30Conversions, prior30Conversions) >= 0 ? "+" : ""}${pctChange(last30Conversions, prior30Conversions)}% vs prior 30d).`
+  );
+  lines.push("");
+
+  lines.push(`## Keyword rankings (most recent ${KEYWORDS.length} readings)`);
+  lines.push("keyword | position | delta | search_volume");
+  for (const k of KEYWORDS) {
+    lines.push(`${k.term} | ${k.pos} | ${k.delta > 0 ? "+" : ""}${k.delta} | ${k.volume}/mo`);
+  }
+  lines.push("");
+
+  lines.push(`## Ad campaigns (${CAMPAIGNS.length})`);
+  lines.push("name | platform | spend | roas | status");
+  for (const c of CAMPAIGNS) {
+    lines.push(`${c.name} | ${c.channel} | $${c.spend} | ${c.roas}x | ${c.status}`);
+  }
+  lines.push("");
+
+  lines.push(`## Daily social stats (last ${days} days, ${days * SOCIAL_PLATFORMS.length} rows)`);
+  lines.push("date | platform | followers | engagement_rate");
+  SOCIAL_PLATFORMS.forEach((p, idx) => {
+    const base = Math.round(p.followers * 0.85);
+    const drift = (p.followers - base) / days;
+    const followers = genDailySeries(days, base, drift, Math.max(3, base * 0.004), 100 + idx * 7);
+    for (let i = 0; i < days; i++) {
+      lines.push(`${dates[i]} | ${p.platform} | ${followers[i]} | ${p.engagement}%`);
+    }
+  });
+
+  return lines.join("\n");
+}

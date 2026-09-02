@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/anthropic/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { buildClientDataDigest, DEMO_DATA_DIGEST } from "@/lib/assistant/data-context";
+import { buildClientDataDigest, buildDemoDataDigest } from "@/lib/assistant/data-context";
 
 export const maxDuration = 60;
 
@@ -64,7 +64,7 @@ export async function POST(req: Request) {
     let digest: string;
 
     if (body.demo) {
-      digest = DEMO_DATA_DIGEST;
+      digest = buildDemoDataDigest();
     } else {
       if (!supabaseAdmin) {
         return new Response("SUPABASE_SERVICE_ROLE_KEY is not configured", { status: 500 });
