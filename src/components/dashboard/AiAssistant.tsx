@@ -113,7 +113,7 @@ export function AiAssistant({ configured, clientId, businessName, saveReport }: 
 
   return (
     <>
-      <button className={`ai-fab ${open ? "ai-fab-open" : ""}`} onClick={() => setOpen((v) => !v)} aria-label="Ask Claude">
+      <button className={`ai-fab ${open ? "ai-fab-open" : ""}`} onClick={() => setOpen((v) => !v)} aria-label="Ask Athena">
         {open ? <X size={20} /> : <Sparkles size={20} />}
       </button>
 
@@ -122,7 +122,7 @@ export function AiAssistant({ configured, clientId, businessName, saveReport }: 
           <div className="ai-panel-header">
             <div className="ai-panel-title">
               <Sparkles size={15} />
-              <span>Heliast Assistant</span>
+              <span>Athena</span>
             </div>
             <div className="ai-panel-sub">Powered by Claude · {businessName}</div>
           </div>
@@ -130,7 +130,7 @@ export function AiAssistant({ configured, clientId, businessName, saveReport }: 
           <div className="ai-messages" ref={scrollRef}>
             {messages.length === 0 && (
               <div className="ai-empty">
-                <p>Ask about your traffic, campaigns, SEO, or social performance — any time window.</p>
+                <p>Hi, I&apos;m Athena — ask about your traffic, campaigns, SEO, or social performance, any time window.</p>
                 <div className="ai-examples">
                   {EXAMPLE_PROMPTS.map((p) => (
                     <button key={p} className="ai-example-chip" onClick={() => send(p)} type="button">

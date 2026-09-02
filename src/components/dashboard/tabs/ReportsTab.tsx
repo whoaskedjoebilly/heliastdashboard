@@ -37,7 +37,7 @@ export function ReportsTab({ configured, reports, loading, deleteReport }: Repor
         ) : reports.length === 0 ? (
           <div className="live-empty">
             <Sparkles size={14} style={{ verticalAlign: -2, marginRight: 6 }} />
-            No saved reports yet — ask the assistant in the corner a question, then save its answer here.
+            No saved reports yet — ask Athena in the corner a question, then save its answer here.
           </div>
         ) : (
           <div className="saved-report-list">
