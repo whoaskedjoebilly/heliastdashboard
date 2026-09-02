@@ -88,10 +88,25 @@ export async function POST(req: Request) {
       digest = await buildClientDataDigest(supabaseAdmin, client.id);
     }
 
+    // Prompt caching: the system prompt (rules + this client's data digest)
+    // is identical on every turn of a conversation, so it gets an explicit
+    // cache breakpoint — after the first message, later turns read it back
+    // at ~1/10th the input price instead of paying full price again. The
+    // top-level cache_control auto-places a second breakpoint on the
+    // growing message history, so earlier turns in a long conversation are
+    // also served from cache rather than reprocessed every request. See
+    // shared/prompt-caching.md § "robust combination for agent loops".
     const claudeStream = anthropic.messages.stream({
       model: "claude-opus-5",
       max_tokens: 8000,
-      system: `${SYSTEM_PROMPT}\n\n---\n\nCurrent data:\n\n${digest}`,
+      cache_control: { type: "ephemeral" },
+      system: [
+        {
+          type: "text",
+          text: `${SYSTEM_PROMPT}\n\n---\n\nCurrent data:\n\n${digest}`,
+          cache_control: { type: "ephemeral" },
+        },
+      ],
       messages: messages.map((m) => ({ role: m.role, content: m.content })),
     });
 
@@ -104,7 +119,12 @@ export async function POST(req: Request) {
           controller.enqueue(encoder.encode(text));
         });
         try {
-          await claudeStream.finalMessage();
+          const final = await claudeStream.finalMessage();
+          const u = final.usage;
+          console.log(
+            `Claude usage — input:${u.input_tokens} cache_write:${u.cache_creation_input_tokens ?? 0} ` +
+              `cache_read:${u.cache_read_input_tokens ?? 0} output:${u.output_tokens}`
+          );
           closed = true;
           controller.close();
         } catch (err) {
