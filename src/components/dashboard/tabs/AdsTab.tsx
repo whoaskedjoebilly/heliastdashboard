@@ -5,7 +5,7 @@ import { DollarSign, Target, CheckCircle2, Receipt } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { StatusDot } from "../ui/StatusDot";
-import { CAMPAIGNS, CONVERSIONS_LONG, windowMetrics } from "../mock-data";
+import { AD_SPEND_LONG, CAMPAIGNS, CONVERSIONS_LONG, windowMetrics } from "../mock-data";
 import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
 import { useAdsData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
@@ -35,6 +35,7 @@ export function AdsTab({ configured, clientId, clientLoading, range }: AdsTabPro
   const deltaLabel = DELTA_LABEL[range];
 
   const mockConversions = windowMetrics(CONVERSIONS_LONG, RANGE_CONFIG[range]);
+  const mockAdSpend = windowMetrics(AD_SPEND_LONG, RANGE_CONFIG[range]);
 
   const campaigns = configured ? data.campaigns : CAMPAIGNS;
   const conversionsTrend = configured ? data.conversionsTrend : mockConversions.trend;
@@ -42,8 +43,16 @@ export function AdsTab({ configured, clientId, clientLoading, range }: AdsTabPro
   const conversionsDeltaPct = configured ? data.conversionsDeltaPct : mockConversions.deltaPct;
   const isLoading = configured && (clientLoading || loading);
 
-  const totalSpend = campaigns.reduce((a, c) => a + c.spend, 0);
-  const blendedRoas = totalSpend > 0 ? campaigns.reduce((a, c) => a + c.roas * c.spend, 0) / totalSpend : 0;
+  // dashboard_ad_campaigns is a point-in-time sync snapshot, not daily
+  // history, so a real account's total spend genuinely can't be windowed
+  // yet — only the demo path (synthetic daily series) varies by range.
+  // Blended ROAS is always the spend-weighted average across the current
+  // campaign list, independent of the windowed spend headline above it.
+  const campaignSpend = campaigns.reduce((a, c) => a + c.spend, 0);
+  const totalSpend = configured ? campaignSpend : mockAdSpend.total;
+  const spendDeltaPct = configured ? 0 : mockAdSpend.deltaPct;
+  const spendDeltaLabel = configured ? "current total" : deltaLabel;
+  const blendedRoas = campaignSpend > 0 ? campaigns.reduce((a, c) => a + c.roas * c.spend, 0) / campaignSpend : 0;
   const costPerConversion = conversionsTotal > 0 ? totalSpend / conversionsTotal : 0;
   const conversionsSpark = conversionsTrend.slice(-12).map((t) => t.value);
 
@@ -51,11 +60,11 @@ export function AdsTab({ configured, clientId, clientLoading, range }: AdsTabPro
     <>
       <div className="hero-row">
         <MetricHero
-          label={`Total spend (${rangeLabel})`}
+          label={configured ? "Total spend" : `Total spend (${rangeLabel})`}
           value={totalSpend}
           prefix="$"
-          deltaLabel={deltaLabel}
-          deltaValue={0}
+          deltaLabel={spendDeltaLabel}
+          deltaValue={spendDeltaPct}
           invert
           icon={<DollarSign size={16} />}
           color="#f2a93e"
@@ -65,7 +74,7 @@ export function AdsTab({ configured, clientId, clientLoading, range }: AdsTabPro
           value={blendedRoas}
           suffix="×"
           decimals={1}
-          deltaLabel={deltaLabel}
+          deltaLabel="all active campaigns"
           deltaValue={0}
           icon={<Target size={16} />}
           color="#c084fc"

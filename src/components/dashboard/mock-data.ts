@@ -124,6 +124,19 @@ export const CAMPAIGNS: CampaignRow[] = [
 
 export const SEO_HEALTH: SeoHealth = { indexed: 128, crawlErrors: 2, avgPosition: 11.4, backlinks: 342 };
 
+// Pages indexed and backlinks are "stock" metrics (a running count, like
+// followers) that genuinely do grow over weeks — unlike crawl errors or
+// avg. position, which don't have a meaningful long-run drift story — so
+// these two get long series windowed with endpointWindow. Ends near
+// SEO_HEALTH's values so the two stay roughly in sync.
+export const INDEXED_PAGES_LONG: TrendPoint[] = genTrend(180, 95, 0.18, 4.2);
+export const BACKLINKS_LONG: TrendPoint[] = genTrend(180, 260, 0.46, 4);
+
+// Daily ad spend so "Total spend" isn't frozen at the same number regardless
+// of the selected range — a genuine flow metric like sessions/conversions,
+// windowed the same way (sum over the window vs. the prior window).
+export const AD_SPEND_LONG: TrendPoint[] = genTrend(180, 148, 0.06, 26);
+
 // Per-platform 180-day follower series so the range toggle can show real
 // "growth over the selected period" numbers on the Social tab (a follower
 // count is a stock metric — see endpointWindow — not something to sum).

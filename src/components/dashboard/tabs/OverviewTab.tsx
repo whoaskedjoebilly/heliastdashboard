@@ -7,7 +7,7 @@ import { MetricHero } from "../ui/MetricHero";
 import { Delta } from "../ui/Delta";
 import { StatusDot } from "../ui/StatusDot";
 import { DonutChannelChart } from "../ui/DonutChannelChart";
-import { CAMPAIGNS, CHANNEL_SPLIT, CONVERSIONS_LONG, KEYWORDS, TRAFFIC_LONG, windowMetrics } from "../mock-data";
+import { AD_SPEND_LONG, CAMPAIGNS, CHANNEL_SPLIT, CONVERSIONS_LONG, KEYWORDS, TRAFFIC_LONG, windowMetrics } from "../mock-data";
 import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
 import { useOverviewData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
@@ -32,6 +32,7 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
 
   const mockSessions = windowMetrics(TRAFFIC_LONG, RANGE_CONFIG[range]);
   const mockConversions = windowMetrics(CONVERSIONS_LONG, RANGE_CONFIG[range]);
+  const mockAdSpend = windowMetrics(AD_SPEND_LONG, RANGE_CONFIG[range]);
 
   const heroMetrics = configured
     ? {
@@ -47,9 +48,14 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
         sessionsDelta: mockSessions.deltaPct,
         conversions: mockConversions.total,
         conversionsDelta: mockConversions.deltaPct,
-        adSpend: 4630,
+        adSpend: mockAdSpend.total,
         roas: 3.6,
       };
+  // dashboard_ad_campaigns is a point-in-time sync snapshot for real
+  // accounts, not daily history, so its spend genuinely can't be windowed
+  // yet — only the demo path (synthetic daily series) varies by range.
+  const adSpendDelta = configured ? 0 : mockAdSpend.deltaPct;
+  const adSpendDeltaLabel = configured ? "current total" : deltaLabel;
 
   const traffic = configured ? data.traffic : mockSessions.trend;
   const conversionsTrend = configured ? data.conversionsTrend : mockConversions.trend;
@@ -87,8 +93,8 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
           label="Ad spend"
           value={heroMetrics.adSpend}
           prefix="$"
-          deltaLabel={deltaLabel}
-          deltaValue={0}
+          deltaLabel={adSpendDeltaLabel}
+          deltaValue={adSpendDelta}
           invert
           icon={<DollarSign size={16} />}
           color="#f2a93e"
@@ -98,7 +104,7 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
           value={heroMetrics.roas}
           suffix="×"
           decimals={1}
-          deltaLabel={deltaLabel}
+          deltaLabel="all active campaigns"
           deltaValue={0}
           icon={<Target size={16} />}
           color="#c084fc"

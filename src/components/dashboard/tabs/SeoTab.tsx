@@ -5,7 +5,7 @@ import { FileSearch, AlertTriangle, TrendingUp, Link2 } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { Delta } from "../ui/Delta";
-import { KEYWORDS, SEO_HEALTH, TRAFFIC_LONG, windowMetrics } from "../mock-data";
+import { BACKLINKS_LONG, INDEXED_PAGES_LONG, KEYWORDS, SEO_HEALTH, TRAFFIC_LONG, endpointWindow, windowMetrics } from "../mock-data";
 import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
 import { useSeoData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
@@ -21,24 +21,44 @@ const RANGE_LABEL: Record<RangeKey, string> = {
   "30d": "30d",
   "90d": "90d",
 };
+const DELTA_LABEL: Record<RangeKey, string> = {
+  today: "vs yesterday",
+  yesterday: "vs day before",
+  "7d": "in the last 7d",
+  "30d": "in the last 30d",
+  "90d": "in the last 90d",
+};
 
 export function SeoTab({ configured, clientId, clientLoading, range }: SeoTabProps) {
   const { data, loading } = useSeoData(clientId, range);
   const rangeLabel = RANGE_LABEL[range];
+  const deltaLabel = DELTA_LABEL[range];
 
   const keywords = configured ? data.keywords : KEYWORDS;
   const organicSessions = configured ? data.organicSessions : windowMetrics(TRAFFIC_LONG, RANGE_CONFIG[range]).trend;
   const health = configured ? data.health : SEO_HEALTH;
   const isLoading = configured && (clientLoading || loading);
 
+  // Pages indexed / backlinks are stock metrics with a real (slow) growth
+  // story — see mock-data.ts's INDEXED_PAGES_LONG/BACKLINKS_LONG — unlike
+  // crawl errors and avg. position, which stay a flat snapshot. Real
+  // accounts have no source for any of these four yet (see the notice
+  // below), so this only applies to the demo path.
+  const mockIndexed = endpointWindow(INDEXED_PAGES_LONG, RANGE_CONFIG[range]);
+  const mockBacklinks = endpointWindow(BACKLINKS_LONG, RANGE_CONFIG[range]);
+  const indexed = configured ? health.indexed : mockIndexed.value;
+  const indexedDelta = configured ? 0 : mockIndexed.deltaPct;
+  const backlinks = configured ? health.backlinks : mockBacklinks.value;
+  const backlinksDelta = configured ? 0 : mockBacklinks.deltaPct;
+
   return (
     <>
       <div className="hero-row">
         <MetricHero
           label="Pages indexed"
-          value={health.indexed}
-          deltaLabel="vs last month"
-          deltaValue={0}
+          value={indexed}
+          deltaLabel={configured ? "vs last month" : deltaLabel}
+          deltaValue={indexedDelta}
           icon={<FileSearch size={16} />}
           color="#3ef28c"
         />
@@ -63,9 +83,9 @@ export function SeoTab({ configured, clientId, clientLoading, range }: SeoTabPro
         />
         <MetricHero
           label="Backlinks"
-          value={health.backlinks}
-          deltaLabel="vs last month"
-          deltaValue={0}
+          value={backlinks}
+          deltaLabel={configured ? "vs last month" : deltaLabel}
+          deltaValue={backlinksDelta}
           icon={<Link2 size={16} />}
           color="#c084fc"
         />
