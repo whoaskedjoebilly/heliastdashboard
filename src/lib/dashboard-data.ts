@@ -16,6 +16,7 @@ import type {
   TrendPoint,
   Visitor,
 } from "@/components/dashboard/types";
+import type { ReportConfig } from "@/lib/reports/registry";
 
 export interface DashboardClient {
   id: string;
@@ -91,7 +92,7 @@ export const RANGE_CONFIG: Record<RangeKey, RangeConfig> = {
   "90d": { length: 90, endOffset: 0, trendLength: 90 },
 };
 
-interface RangeBounds {
+export interface RangeBounds {
   currentStartStr: string;
   currentEndStr: string;
   priorStartStr: string;
@@ -102,7 +103,7 @@ interface RangeBounds {
 /** Resolves a RangeKey into concrete date-string boundaries (inclusive),
  * shared by every hook below so "today"/"yesterday"/"7d"/"30d"/"90d" mean
  * exactly the same thing on every tab. */
-function computeRangeBounds(range: RangeKey): RangeBounds {
+export function computeRangeBounds(range: RangeKey): RangeBounds {
   const { length, endOffset, trendLength } = RANGE_CONFIG[range];
   const dateStr = (d: Date) => d.toISOString().slice(0, 10);
   const addDays = (d: Date, n: number) => {
@@ -799,4 +800,65 @@ export function useSavedReports(clientId: string | null) {
   );
 
   return { reports, loading, saveReport, deleteReport };
+}
+
+export interface CustomReport {
+  id: string;
+  title: string;
+  config: ReportConfig;
+  created_at: string;
+}
+
+/** CRUD for saved custom-report *definitions* (dashboard_custom_reports) —
+ * distinct from useSavedReports above, which stores frozen AI-answer text.
+ * A custom report re-runs its query every time it's opened; only the
+ * definition (dataset/metrics/dimension/filters/chart type) is persisted. */
+export function useCustomReports(clientId: string | null) {
+  const [reports, setReports] = useState<CustomReport[]>([]);
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    if (!supabase || !clientId) {
+      setReports([]);
+      return;
+    }
+    setLoading(true);
+    const { data, error } = await supabase
+      .from("dashboard_custom_reports")
+      .select("id, title, config, created_at")
+      .eq("client_id", clientId)
+      .order("created_at", { ascending: false });
+    if (error) console.error("Failed to load custom reports", error);
+    setReports((data as CustomReport[]) ?? []);
+    setLoading(false);
+  }, [clientId]);
+
+  useEffect(() => {
+    (async () => {
+      await refresh();
+    })();
+  }, [refresh]);
+
+  const saveCustomReport = useCallback(
+    async (title: string, config: ReportConfig) => {
+      if (!supabase || !clientId) return { error: "Not signed in" };
+      const { error } = await supabase.from("dashboard_custom_reports").insert({ client_id: clientId, title, config });
+      if (error) return { error: error.message };
+      await refresh();
+      return { error: null };
+    },
+    [clientId, refresh]
+  );
+
+  const deleteCustomReport = useCallback(
+    async (id: string) => {
+      if (!supabase) return;
+      const { error } = await supabase.from("dashboard_custom_reports").delete().eq("id", id);
+      if (error) console.error("Failed to delete custom report", error);
+      await refresh();
+    },
+    [refresh]
+  );
+
+  return { reports, loading, saveCustomReport, deleteCustomReport };
 }

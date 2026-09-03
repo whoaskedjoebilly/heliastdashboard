@@ -7,10 +7,10 @@ import { SeoTab } from "./tabs/SeoTab";
 import { AdsTab } from "./tabs/AdsTab";
 import { SocialTab } from "./tabs/SocialTab";
 import { LiveTab } from "./tabs/LiveTab";
-import { ReportsTab } from "./tabs/ReportsTab";
+import { AnalyticsTab } from "./tabs/AnalyticsTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 import { AiAssistant } from "./AiAssistant";
-import { useDashboardClient, useSavedReports, type RangeKey } from "@/lib/dashboard-data";
+import { useCustomReports, useDashboardClient, useSavedReports, type RangeKey } from "@/lib/dashboard-data";
 
 interface DashboardShellProps {
   onLogout: () => void;
@@ -26,16 +26,17 @@ const NAV = [
   { id: "ads", label: "Ads" },
   { id: "social", label: "Social" },
   { id: "live", label: "Live" },
-  { id: "reports", label: "Reports" },
+  { id: "analytics", label: "Analytics" },
   { id: "settings", label: "Settings" },
 ] as const;
 
 type TabId = (typeof NAV)[number]["id"];
 
-// Live (real-time feed), Reports (a saved-answer library), and Settings
-// have no time-windowed metrics, so the range toggle is hidden there
-// instead of sitting next to controls it doesn't affect.
-const RANGE_AWARE_TABS = new Set<TabId>(["overview", "seo", "ads", "social"]);
+// Live (real-time feed) and Settings have no time-windowed metrics, so the
+// range toggle is hidden there instead of sitting next to controls it
+// doesn't affect. Analytics' report builder is range-aware (its live
+// preview queries the selected window), so it keeps the toggle.
+const RANGE_AWARE_TABS = new Set<TabId>(["overview", "seo", "ads", "social", "analytics"]);
 
 export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
   const [tab, setTab] = useState<TabId>("overview");
@@ -51,6 +52,12 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
   const clientId = configured ? client?.id ?? null : null;
   const noClientLinked = configured && !loading && !client;
   const { reports, loading: reportsLoading, saveReport, deleteReport } = useSavedReports(clientId);
+  const {
+    reports: customReports,
+    loading: customReportsLoading,
+    saveCustomReport,
+    deleteCustomReport,
+  } = useCustomReports(clientId);
 
   const content = useMemo(() => {
     if (noClientLinked) {
@@ -66,9 +73,40 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
     if (tab === "ads") return <AdsTab configured={configured} clientId={clientId} clientLoading={loading} range={range} />;
     if (tab === "social") return <SocialTab configured={configured} clientId={clientId} clientLoading={loading} range={range} />;
     if (tab === "live") return <LiveTab configured={configured} clientId={clientId} clientLoading={loading} />;
-    if (tab === "reports") return <ReportsTab configured={configured} reports={reports} loading={reportsLoading} deleteReport={deleteReport} />;
+    if (tab === "analytics")
+      return (
+        <AnalyticsTab
+          configured={configured}
+          clientId={clientId}
+          range={range}
+          reports={reports}
+          reportsLoading={reportsLoading}
+          deleteReport={deleteReport}
+          customReports={customReports}
+          customReportsLoading={customReportsLoading}
+          saveCustomReport={saveCustomReport}
+          deleteCustomReport={deleteCustomReport}
+        />
+      );
     return <SettingsTab onLogout={onLogout} businessName={businessName} businessPlan={businessPlan} clientId={clientId} />;
-  }, [tab, onLogout, configured, clientId, loading, noClientLinked, businessName, businessPlan, reports, reportsLoading, deleteReport, range]);
+  }, [
+    tab,
+    onLogout,
+    configured,
+    clientId,
+    loading,
+    noClientLinked,
+    businessName,
+    businessPlan,
+    reports,
+    reportsLoading,
+    deleteReport,
+    customReports,
+    customReportsLoading,
+    saveCustomReport,
+    deleteCustomReport,
+    range,
+  ]);
 
   const title = NAV.find((n) => n.id === tab)?.label ?? "Overview";
 
