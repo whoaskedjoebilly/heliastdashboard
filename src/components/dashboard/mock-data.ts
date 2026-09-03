@@ -62,8 +62,8 @@ export function genStationary(days: number, base: number, noise: number, decimal
 // 180-day canonical series so the 7d/30d/90d range toggle has a real prior
 // window to compare against even at the 90-day setting (90d current +
 // 90d prior = 180d of history needed).
-export const TRAFFIC_LONG: TrendPoint[] = genTrend(180, 420, 2.4, 55);
-export const CONVERSIONS_LONG: TrendPoint[] = genTrend(180, 11, 0.035, 3.6);
+export const TRAFFIC_LONG: TrendPoint[] = genTrend(180, 420, 3.2, 46);
+export const CONVERSIONS_LONG: TrendPoint[] = genTrend(180, 11, 0.09, 3);
 
 export const TRAFFIC: TrendPoint[] = TRAFFIC_LONG.slice(-30);
 export const CONVERSIONS: TrendPoint[] = CONVERSIONS_LONG.slice(-30);
@@ -169,7 +169,7 @@ export const SEO_HEALTH: SeoHealth = { indexed: 128, crawlErrors: 2, avgPosition
 // avg. position, which don't have a meaningful long-run drift story — so
 // these two get long series windowed with endpointWindow. Ends near
 // SEO_HEALTH's values so the two stay roughly in sync.
-export const INDEXED_PAGES_LONG: TrendPoint[] = genTrend(180, 95, 0.18, 4.2);
+export const INDEXED_PAGES_LONG: TrendPoint[] = genTrend(180, 90, 0.45, 3);
 export const BACKLINKS_LONG: TrendPoint[] = genTrend(180, 260, 0.46, 4);
 
 // Daily ad spend so "Total spend" isn't frozen at the same number regardless
@@ -188,7 +188,7 @@ export const ROAS_LONG: TrendPoint[] = genStationary(180, 3.6, 1.2, 1);
 export const PLATFORM_SERIES_LONG: Record<string, TrendPoint[]> = {
   Instagram: genTrend(180, 4000, 4.6, 12),
   TikTok: genTrend(180, 1500, 3.6, 18),
-  Facebook: genTrend(180, 1900, 0.5, 6),
+  Facebook: genTrend(180, 1900, 1.4, 6),
 };
 export const PLATFORM_ENGAGEMENT: Record<string, number> = { Instagram: 3.8, TikTok: 6.4, Facebook: 1.9 };
 
@@ -204,6 +204,7 @@ export const SOCIAL_PLATFORMS: SocialPlatformStat[] = Object.entries(PLATFORM_SE
   return {
     platform,
     followers: latest,
+    growth: latest - prior,
     delta: prior > 0 ? Math.round(((latest - prior) / prior) * 1000) / 10 : 0,
     engagement: PLATFORM_ENGAGEMENT[platform] ?? 0,
   };

@@ -681,6 +681,11 @@ nav {
 .platform-followers {
   font-size: 13.5px;
 }
+.platform-followers-sub {
+  font-size: 11px;
+  font-family: var(--font-space-grotesk), sans-serif;
+  margin-top: 2px;
+}
 .platform-delta {
   font-size: 12.5px;
 }

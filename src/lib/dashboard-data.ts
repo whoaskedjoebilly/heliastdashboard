@@ -600,7 +600,8 @@ export function useSocialData(clientId: string | null, range: RangeKey = "30d") 
       const priorFollowers = valueAsOf(followerReadings, priorEndStr) ?? followers;
       const engagement = valueAsOf(engagementReadings, currentEndStr) ?? 0;
       const delta = priorFollowers > 0 ? Math.round(((followers - priorFollowers) / priorFollowers) * 1000) / 10 : 0;
-      return { platform, followers, delta, engagement };
+      const growth = followers - priorFollowers;
+      return { platform, followers, growth, delta, engagement };
     });
 
     const followersTrend: TrendPoint[] = Array.from(byDateTotal.entries())

@@ -6,7 +6,7 @@ import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { StatusDot } from "../ui/StatusDot";
 import { AD_SPEND_LONG, CAMPAIGNS, CONVERSIONS_LONG, ROAS_LONG, windowAverage, windowMetrics } from "../mock-data";
-import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
+import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle, chartValueDomain } from "../chart-theme";
 import { useAdsData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
 
@@ -160,9 +160,16 @@ export function AdsTab({ configured, clientId, clientLoading, range }: AdsTabPro
                 tickLine={false}
                 interval={Math.max(0, Math.ceil(conversionsTrend.length / 6) - 1)}
               />
-              <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={32} />
+              <YAxis
+                tick={chartAxisTick}
+                axisLine={false}
+                tickLine={false}
+                width={32}
+                domain={chartValueDomain(conversionsTrend)}
+                allowDecimals={false}
+              />
               <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
-              <Area type="monotone" dataKey="value" stroke="#F2A93E" strokeWidth={2} fill="url(#convFill)" />
+              <Area type="monotone" dataKey="value" name="Conversions" stroke="#F2A93E" strokeWidth={2} fill="url(#convFill)" />
             </AreaChart>
           </ResponsiveContainer>
         )}

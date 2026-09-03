@@ -146,7 +146,7 @@ export function SeoTab({ configured, clientId, clientLoading, range }: SeoTabPro
               />
               <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={40} />
               <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
-              <Bar dataKey="value" fill="#3EF28C" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="value" name="Organic sessions" fill="#3EF28C" radius={[3, 3, 0, 0]} />
             </BarChart>
           </ResponsiveContainer>
         )}

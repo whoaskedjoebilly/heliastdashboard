@@ -35,6 +35,8 @@ export interface SeoHealth {
 export interface SocialPlatformStat {
   platform: string;
   followers: number;
+  /** Raw follower count gained (or lost) over the selected range. */
+  growth: number;
   delta: number;
   engagement: number;
 }

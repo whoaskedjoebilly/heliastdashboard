@@ -7,7 +7,7 @@ import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { Delta } from "../ui/Delta";
 import { FOLLOWERS_LONG, PLATFORM_ENGAGEMENT, PLATFORM_SERIES_LONG, TOP_POSTS, endpointWindow } from "../mock-data";
-import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
+import { chartAxisLine, chartAxisTick, chartCompactTick, chartTooltipLabelStyle, chartTooltipStyle, chartValueDomain } from "../chart-theme";
 import { useSocialData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
 
@@ -38,7 +38,7 @@ export function SocialTab({ configured, clientId, clientLoading, range }: Social
   const mockFollowersWindow = endpointWindow(FOLLOWERS_LONG, RANGE_CONFIG[range]);
   const mockPlatforms = Object.entries(PLATFORM_SERIES_LONG).map(([platform, series]) => {
     const w = endpointWindow(series, RANGE_CONFIG[range]);
-    return { platform, followers: w.value, delta: w.deltaPct, engagement: PLATFORM_ENGAGEMENT[platform] ?? 0 };
+    return { platform, followers: w.value, growth: w.value - w.priorValue, delta: w.deltaPct, engagement: PLATFORM_ENGAGEMENT[platform] ?? 0 };
   });
 
   const platforms = configured ? data.platforms : mockPlatforms;
@@ -105,7 +105,7 @@ export function SocialTab({ configured, clientId, clientLoading, range }: Social
             <div className="live-empty">No follower history yet — connect Instagram, TikTok, or Facebook.</div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={followersTrend} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+              <AreaChart data={followersTrend} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
                 <defs>
                   <linearGradient id="followerFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#3EF28C" stopOpacity={0.35} />
@@ -120,21 +120,33 @@ export function SocialTab({ configured, clientId, clientLoading, range }: Social
                   tickLine={false}
                   interval={Math.max(0, Math.ceil(followersTrend.length / 6) - 1)}
                 />
-                <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={40} />
+                <YAxis
+                  tick={chartAxisTick}
+                  axisLine={false}
+                  tickLine={false}
+                  width={48}
+                  domain={chartValueDomain(followersTrend)}
+                  allowDecimals={false}
+                  tickFormatter={chartCompactTick}
+                />
                 <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
-                <Area type="monotone" dataKey="value" stroke="#3EF28C" strokeWidth={2} fill="url(#followerFill)" />
+                <Area type="monotone" dataKey="value" name="Total followers" stroke="#3EF28C" strokeWidth={2} fill="url(#followerFill)" />
               </AreaChart>
             </ResponsiveContainer>
           )}
         </Panel>
 
-        <Panel title="By platform">
+        <Panel title={`By platform (${rangeLabel})`}>
           <div className="platform-list">
             {platforms.length === 0 && !isLoading && <div className="live-empty">No connected platforms yet.</div>}
             {platforms.map((p) => (
               <div className="platform-row" key={p.platform}>
                 <div className="platform-name">{p.platform}</div>
-                <div className="platform-followers mono">{p.followers.toLocaleString()}</div>
+                <div className="platform-followers mono">
+                  {p.growth > 0 ? "+" : ""}
+                  {p.growth.toLocaleString()}
+                  <div className="platform-followers-sub muted">{p.followers.toLocaleString()} total</div>
+                </div>
                 <div className="platform-delta">
                   <Delta value={p.delta} />
                 </div>

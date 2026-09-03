@@ -8,7 +8,7 @@ import { Delta } from "../ui/Delta";
 import { StatusDot } from "../ui/StatusDot";
 import { DonutChannelChart } from "../ui/DonutChannelChart";
 import { AD_SPEND_LONG, CAMPAIGNS, CHANNEL_SPLIT, CONVERSIONS_LONG, KEYWORDS, ROAS_LONG, TRAFFIC_LONG, windowAverage, windowMetrics } from "../mock-data";
-import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
+import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle, chartValueDomain } from "../chart-theme";
 import { useOverviewData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
 
@@ -138,9 +138,16 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
                   tickLine={false}
                   interval={Math.max(0, Math.ceil(traffic.length / 6) - 1)}
                 />
-                <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={40} />
+                <YAxis
+                  tick={chartAxisTick}
+                  axisLine={false}
+                  tickLine={false}
+                  width={40}
+                  domain={chartValueDomain(traffic)}
+                  allowDecimals={false}
+                />
                 <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
-                <Area type="monotone" dataKey="value" stroke="#3EF28C" strokeWidth={2} fill="url(#trafficFill)" />
+                <Area type="monotone" dataKey="value" name="Sessions" stroke="#3EF28C" strokeWidth={2} fill="url(#trafficFill)" />
               </AreaChart>
             </ResponsiveContainer>
           )}
