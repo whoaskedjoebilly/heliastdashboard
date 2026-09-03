@@ -5,16 +5,29 @@ import { FileSearch, AlertTriangle, TrendingUp, Link2 } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { Delta } from "../ui/Delta";
-import { KEYWORDS, SEO_HEALTH, TRAFFIC } from "../mock-data";
+import { KEYWORDS, SEO_HEALTH, TRAFFIC_LONG, windowMetrics } from "../mock-data";
 import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
-import { useSeoData } from "@/lib/dashboard-data";
+import { useSeoData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
 
-export function SeoTab({ configured, clientId, clientLoading }: TabDataProps) {
-  const { data, loading } = useSeoData(clientId);
+interface SeoTabProps extends TabDataProps {
+  range: RangeKey;
+}
+
+const RANGE_LABEL: Record<RangeKey, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  "7d": "7d",
+  "30d": "30d",
+  "90d": "90d",
+};
+
+export function SeoTab({ configured, clientId, clientLoading, range }: SeoTabProps) {
+  const { data, loading } = useSeoData(clientId, range);
+  const rangeLabel = RANGE_LABEL[range];
 
   const keywords = configured ? data.keywords : KEYWORDS;
-  const organicSessions = configured ? data.organicSessions : TRAFFIC.slice(-14);
+  const organicSessions = configured ? data.organicSessions : windowMetrics(TRAFFIC_LONG, RANGE_CONFIG[range]).trend;
   const health = configured ? data.health : SEO_HEALTH;
   const isLoading = configured && (clientLoading || loading);
 
@@ -93,14 +106,20 @@ export function SeoTab({ configured, clientId, clientLoading }: TabDataProps) {
         )}
       </Panel>
 
-      <Panel title="Organic sessions">
+      <Panel title={`Organic sessions (${rangeLabel})`}>
         {organicSessions.length === 0 && !isLoading ? (
           <div className="live-empty">No organic traffic data yet.</div>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={organicSessions} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
               <CartesianGrid stroke="#1B2721" vertical={false} />
-              <XAxis dataKey="date" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} />
+              <XAxis
+                dataKey="date"
+                tick={chartAxisTick}
+                axisLine={chartAxisLine}
+                tickLine={false}
+                interval={Math.max(0, Math.ceil(organicSessions.length / 6) - 1)}
+              />
               <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={40} />
               <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
               <Bar dataKey="value" fill="#3EF28C" radius={[3, 3, 0, 0]} />

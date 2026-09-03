@@ -43,6 +43,12 @@ export const CONVERSIONS_LONG: TrendPoint[] = genTrend(180, 11, 0.035, 3.6);
 export const TRAFFIC: TrendPoint[] = TRAFFIC_LONG.slice(-30);
 export const CONVERSIONS: TrendPoint[] = CONVERSIONS_LONG.slice(-30);
 
+export interface RangeConfigLike {
+  length: number;
+  endOffset: number;
+  trendLength: number;
+}
+
 export interface RangeWindow {
   trend: TrendPoint[];
   total: number;
@@ -54,17 +60,44 @@ export interface RangeWindow {
  * change against the immediately preceding window of the same length —
  * used to make the today/yesterday/7d/30d/90d range toggle show genuinely
  * different numbers instead of the same fixed window regardless of
- * selection. `length`/`endOffset` mirror lib/dashboard-data.ts's
- * RANGE_CONFIG so the demo dashboard windows the same way a real one does. */
-export function windowMetrics(long: TrendPoint[], config: { length: number; endOffset: number }): RangeWindow {
-  const { length, endOffset } = config;
+ * selection. `config` mirrors lib/dashboard-data.ts's RANGE_CONFIG so the
+ * demo dashboard windows the same way a real one does. The chart trend
+ * uses `trendLength`, which is wider than `length` for "today"/"yesterday"
+ * (a single point can't draw a line) — see RANGE_CONFIG's doc comment. */
+export function windowMetrics(long: TrendPoint[], config: RangeConfigLike): RangeWindow {
+  const { length, endOffset, trendLength } = config;
   const end = long.length - endOffset;
   const current = long.slice(end - length, end);
   const prior = long.slice(end - 2 * length, end - length);
   const total = current.reduce((a, p) => a + p.value, 0);
   const priorTotal = prior.reduce((a, p) => a + p.value, 0);
   const deltaPct = priorTotal === 0 ? (total > 0 ? 100 : 0) : Math.round(((total - priorTotal) / priorTotal) * 1000) / 10;
-  return { trend: current, total, deltaPct };
+  const trend = long.slice(end - trendLength, end);
+  return { trend, total, deltaPct };
+}
+
+export interface EndpointWindow {
+  trend: TrendPoint[];
+  value: number;
+  priorValue: number;
+  deltaPct: number;
+}
+
+/** Same idea as windowMetrics, but for "stock" metrics (follower counts)
+ * where summing daily values would be meaningless — picks the value as of
+ * the window's end day and compares it to the value `length` days earlier,
+ * i.e. "growth over the selected period". See dashboard-data.ts's
+ * useSocialData for the real-account equivalent. */
+export function endpointWindow(long: TrendPoint[], config: RangeConfigLike): EndpointWindow {
+  const { length, endOffset, trendLength } = config;
+  const end = long.length - endOffset;
+  const currentIdx = end - 1;
+  const priorIdx = end - 1 - length;
+  const value = long[currentIdx]?.value ?? 0;
+  const priorValue = long[priorIdx]?.value ?? value;
+  const deltaPct = priorValue > 0 ? Math.round(((value - priorValue) / priorValue) * 1000) / 10 : 0;
+  const trend = long.slice(end - trendLength, end);
+  return { trend, value, priorValue, deltaPct };
 }
 
 export const CHANNEL_SPLIT: ChannelSplit[] = [
@@ -91,13 +124,32 @@ export const CAMPAIGNS: CampaignRow[] = [
 
 export const SEO_HEALTH: SeoHealth = { indexed: 128, crawlErrors: 2, avgPosition: 11.4, backlinks: 342 };
 
-export const FOLLOWERS_TREND: TrendPoint[] = genTrend(30, 3200, 12, 20);
+// Per-platform 180-day follower series so the range toggle can show real
+// "growth over the selected period" numbers on the Social tab (a follower
+// count is a stock metric — see endpointWindow — not something to sum).
+export const PLATFORM_SERIES_LONG: Record<string, TrendPoint[]> = {
+  Instagram: genTrend(180, 4000, 4.6, 12),
+  TikTok: genTrend(180, 1500, 3.6, 18),
+  Facebook: genTrend(180, 1900, 0.5, 6),
+};
+export const PLATFORM_ENGAGEMENT: Record<string, number> = { Instagram: 3.8, TikTok: 6.4, Facebook: 1.9 };
 
-export const SOCIAL_PLATFORMS: SocialPlatformStat[] = [
-  { platform: "Instagram", followers: 4820, delta: 6.2, engagement: 3.8 },
-  { platform: "TikTok", followers: 2150, delta: 14.1, engagement: 6.4 },
-  { platform: "Facebook", followers: 1990, delta: 1.4, engagement: 1.9 },
-];
+export const FOLLOWERS_LONG: TrendPoint[] = PLATFORM_SERIES_LONG.Instagram.map((point, i) => ({
+  date: point.date,
+  value: Object.values(PLATFORM_SERIES_LONG).reduce((a, series) => a + series[i].value, 0),
+}));
+export const FOLLOWERS_TREND: TrendPoint[] = FOLLOWERS_LONG.slice(-30);
+
+export const SOCIAL_PLATFORMS: SocialPlatformStat[] = Object.entries(PLATFORM_SERIES_LONG).map(([platform, series]) => {
+  const latest = series[series.length - 1].value;
+  const prior = series[series.length - 2].value;
+  return {
+    platform,
+    followers: latest,
+    delta: prior > 0 ? Math.round(((latest - prior) / prior) * 1000) / 10 : 0,
+    engagement: PLATFORM_ENGAGEMENT[platform] ?? 0,
+  };
+});
 
 export const TOP_POSTS: TopPost[] = [
   { caption: "Behind the scenes: how FL-41 tint actually works", platform: "Instagram", reach: "18.4k", saves: 640 },

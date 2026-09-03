@@ -5,32 +5,56 @@ import { DollarSign, Target, CheckCircle2, Receipt } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { StatusDot } from "../ui/StatusDot";
-import { CAMPAIGNS, CONVERSIONS } from "../mock-data";
+import { CAMPAIGNS, CONVERSIONS_LONG, windowMetrics } from "../mock-data";
 import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
-import { useAdsData } from "@/lib/dashboard-data";
+import { useAdsData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
 
-export function AdsTab({ configured, clientId, clientLoading }: TabDataProps) {
-  const { data, loading } = useAdsData(clientId);
+interface AdsTabProps extends TabDataProps {
+  range: RangeKey;
+}
+
+const RANGE_LABEL: Record<RangeKey, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  "7d": "7d",
+  "30d": "30d",
+  "90d": "90d",
+};
+const DELTA_LABEL: Record<RangeKey, string> = {
+  today: "vs yesterday",
+  yesterday: "vs day before",
+  "7d": "vs prior 7d",
+  "30d": "vs prior 30d",
+  "90d": "vs prior 90d",
+};
+
+export function AdsTab({ configured, clientId, clientLoading, range }: AdsTabProps) {
+  const { data, loading } = useAdsData(clientId, range);
+  const rangeLabel = RANGE_LABEL[range];
+  const deltaLabel = DELTA_LABEL[range];
+
+  const mockConversions = windowMetrics(CONVERSIONS_LONG, RANGE_CONFIG[range]);
 
   const campaigns = configured ? data.campaigns : CAMPAIGNS;
-  const conversionsTrend = configured ? data.conversionsTrend : CONVERSIONS;
-  const conversions30d = configured ? data.conversions30d : 318;
+  const conversionsTrend = configured ? data.conversionsTrend : mockConversions.trend;
+  const conversionsTotal = configured ? data.conversionsTotal : mockConversions.total;
+  const conversionsDeltaPct = configured ? data.conversionsDeltaPct : mockConversions.deltaPct;
   const isLoading = configured && (clientLoading || loading);
 
   const totalSpend = campaigns.reduce((a, c) => a + c.spend, 0);
   const blendedRoas = totalSpend > 0 ? campaigns.reduce((a, c) => a + c.roas * c.spend, 0) / totalSpend : 0;
-  const costPerConversion = conversions30d > 0 ? totalSpend / conversions30d : 0;
+  const costPerConversion = conversionsTotal > 0 ? totalSpend / conversionsTotal : 0;
   const conversionsSpark = conversionsTrend.slice(-12).map((t) => t.value);
 
   return (
     <>
       <div className="hero-row">
         <MetricHero
-          label="Total spend (30d)"
+          label={`Total spend (${rangeLabel})`}
           value={totalSpend}
           prefix="$"
-          deltaLabel="vs prior 30d"
+          deltaLabel={deltaLabel}
           deltaValue={0}
           invert
           icon={<DollarSign size={16} />}
@@ -41,16 +65,16 @@ export function AdsTab({ configured, clientId, clientLoading }: TabDataProps) {
           value={blendedRoas}
           suffix="×"
           decimals={1}
-          deltaLabel="vs prior 30d"
+          deltaLabel={deltaLabel}
           deltaValue={0}
           icon={<Target size={16} />}
           color="#c084fc"
         />
         <MetricHero
           label="Conversions"
-          value={conversions30d}
-          deltaLabel="vs prior 30d"
-          deltaValue={0}
+          value={conversionsTotal}
+          deltaLabel={deltaLabel}
+          deltaValue={conversionsDeltaPct}
           icon={<CheckCircle2 size={16} />}
           color="#4ea8ff"
           sparkline={conversionsSpark}
@@ -60,7 +84,7 @@ export function AdsTab({ configured, clientId, clientLoading }: TabDataProps) {
           value={costPerConversion}
           prefix="$"
           decimals={2}
-          deltaLabel="vs prior 30d"
+          deltaLabel={deltaLabel}
           deltaValue={0}
           invert
           icon={<Receipt size={16} />}
@@ -102,7 +126,7 @@ export function AdsTab({ configured, clientId, clientLoading }: TabDataProps) {
         )}
       </Panel>
 
-      <Panel title="Conversions trend">
+      <Panel title={`Conversions trend (${rangeLabel})`}>
         {conversionsTrend.length === 0 && !isLoading ? (
           <div className="live-empty">No conversion data yet.</div>
         ) : (
@@ -115,7 +139,13 @@ export function AdsTab({ configured, clientId, clientLoading }: TabDataProps) {
                 </linearGradient>
               </defs>
               <CartesianGrid stroke="#1B2721" vertical={false} />
-              <XAxis dataKey="date" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} interval={6} />
+              <XAxis
+                dataKey="date"
+                tick={chartAxisTick}
+                axisLine={chartAxisLine}
+                tickLine={false}
+                interval={Math.max(0, Math.ceil(conversionsTrend.length / 6) - 1)}
+              />
               <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={32} />
               <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
               <Area type="monotone" dataKey="value" stroke="#F2A93E" strokeWidth={2} fill="url(#convFill)" />

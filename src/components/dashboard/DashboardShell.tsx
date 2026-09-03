@@ -32,6 +32,11 @@ const NAV = [
 
 type TabId = (typeof NAV)[number]["id"];
 
+// Live (real-time feed), Reports (a saved-answer library), and Settings
+// have no time-windowed metrics, so the range toggle is hidden there
+// instead of sitting next to controls it doesn't affect.
+const RANGE_AWARE_TABS = new Set<TabId>(["overview", "seo", "ads", "social"]);
+
 export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
   const [tab, setTab] = useState<TabId>("overview");
   const [range, setRange] = useState<RangeKey>("30d");
@@ -57,9 +62,9 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
       );
     }
     if (tab === "overview") return <OverviewTab configured={configured} clientId={clientId} clientLoading={loading} range={range} />;
-    if (tab === "seo") return <SeoTab configured={configured} clientId={clientId} clientLoading={loading} />;
-    if (tab === "ads") return <AdsTab configured={configured} clientId={clientId} clientLoading={loading} />;
-    if (tab === "social") return <SocialTab configured={configured} clientId={clientId} clientLoading={loading} />;
+    if (tab === "seo") return <SeoTab configured={configured} clientId={clientId} clientLoading={loading} range={range} />;
+    if (tab === "ads") return <AdsTab configured={configured} clientId={clientId} clientLoading={loading} range={range} />;
+    if (tab === "social") return <SocialTab configured={configured} clientId={clientId} clientLoading={loading} range={range} />;
     if (tab === "live") return <LiveTab configured={configured} clientId={clientId} clientLoading={loading} />;
     if (tab === "reports") return <ReportsTab configured={configured} reports={reports} loading={reportsLoading} deleteReport={deleteReport} />;
     return <SettingsTab onLogout={onLogout} businessName={businessName} businessPlan={businessPlan} clientId={clientId} />;
@@ -98,21 +103,23 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
             <h1>{title}</h1>
             <p className="topbar-sub">{businessName} · performance dashboard</p>
           </div>
-          <div className="range-toggle">
-            {(
-              [
-                ["today", "Today"],
-                ["yesterday", "Yesterday"],
-                ["7d", "7d"],
-                ["30d", "30d"],
-                ["90d", "90d"],
-              ] as const
-            ).map(([r, label]) => (
-              <button key={r} className={range === r ? "active" : ""} onClick={() => setRange(r)}>
-                {label}
-              </button>
-            ))}
-          </div>
+          {RANGE_AWARE_TABS.has(tab) && (
+            <div className="range-toggle">
+              {(
+                [
+                  ["today", "Today"],
+                  ["yesterday", "Yesterday"],
+                  ["7d", "7d"],
+                  ["30d", "30d"],
+                  ["90d", "90d"],
+                ] as const
+              ).map(([r, label]) => (
+                <button key={r} className={range === r ? "active" : ""} onClick={() => setRange(r)}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          )}
         </header>
 
         <div className="content">{content}</div>

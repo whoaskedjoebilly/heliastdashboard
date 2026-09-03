@@ -6,24 +6,52 @@ import { Users, UserPlus, Heart, Flame } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { Delta } from "../ui/Delta";
-import { FOLLOWERS_TREND, SOCIAL_PLATFORMS, TOP_POSTS } from "../mock-data";
+import { FOLLOWERS_LONG, PLATFORM_ENGAGEMENT, PLATFORM_SERIES_LONG, TOP_POSTS, endpointWindow } from "../mock-data";
 import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
-import { useSocialData } from "@/lib/dashboard-data";
+import { useSocialData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
 
-export function SocialTab({ configured, clientId, clientLoading }: TabDataProps) {
-  const { data, loading } = useSocialData(clientId);
+interface SocialTabProps extends TabDataProps {
+  range: RangeKey;
+}
 
-  const platforms = configured ? data.platforms : SOCIAL_PLATFORMS;
-  const followersTrend = configured ? data.followersTrend : FOLLOWERS_TREND;
+const RANGE_LABEL: Record<RangeKey, string> = {
+  today: "Today",
+  yesterday: "Yesterday",
+  "7d": "7d",
+  "30d": "30d",
+  "90d": "90d",
+};
+const DELTA_LABEL: Record<RangeKey, string> = {
+  today: "vs yesterday",
+  yesterday: "vs day before",
+  "7d": "in the last 7d",
+  "30d": "in the last 30d",
+  "90d": "in the last 90d",
+};
+
+export function SocialTab({ configured, clientId, clientLoading, range }: SocialTabProps) {
+  const { data, loading } = useSocialData(clientId, range);
+  const rangeLabel = RANGE_LABEL[range];
+  const deltaLabel = DELTA_LABEL[range];
+
+  const mockFollowersWindow = endpointWindow(FOLLOWERS_LONG, RANGE_CONFIG[range]);
+  const mockPlatforms = Object.entries(PLATFORM_SERIES_LONG).map(([platform, series]) => {
+    const w = endpointWindow(series, RANGE_CONFIG[range]);
+    return { platform, followers: w.value, delta: w.deltaPct, engagement: PLATFORM_ENGAGEMENT[platform] ?? 0 };
+  });
+
+  const platforms = configured ? data.platforms : mockPlatforms;
+  const followersTrend = configured ? data.followersTrend : mockFollowersWindow.trend;
+  const totalFollowers = configured ? data.followersTotal : mockFollowersWindow.value;
+  const newFollowers = configured ? data.newFollowers : mockFollowersWindow.value - mockFollowersWindow.priorValue;
+  const followersDeltaPct = configured ? data.followersDeltaPct : mockFollowersWindow.deltaPct;
   // No table backs individual top posts yet — that needs per-post insights
   // from the Instagram/TikTok APIs, not just follower/engagement rollups.
   const topPosts = configured ? [] : TOP_POSTS;
   const isLoading = configured && (clientLoading || loading);
 
-  const totalFollowers = platforms.reduce((a, p) => a + p.followers, 0);
   const avgEngagement = totalFollowers > 0 ? platforms.reduce((a, p) => a + p.engagement * p.followers, 0) / totalFollowers : 0;
-  const newThisMonth = Math.round(totalFollowers * 0.072);
   const topPlatform = platforms.length > 0 ? platforms.reduce((a, b) => (b.delta > a.delta ? b : a)) : null;
   const followersSpark = followersTrend.slice(-12).map((t) => t.value);
 
@@ -33,16 +61,16 @@ export function SocialTab({ configured, clientId, clientLoading }: TabDataProps)
         <MetricHero
           label="Total followers"
           value={totalFollowers}
-          deltaLabel="vs last month"
-          deltaValue={0}
+          deltaLabel={deltaLabel}
+          deltaValue={followersDeltaPct}
           icon={<Users size={16} />}
           color="#3ef28c"
           sparkline={followersSpark}
         />
         <MetricHero
           label="New followers"
-          value={configured ? 0 : newThisMonth}
-          deltaLabel="last 30 days"
+          value={newFollowers}
+          deltaLabel={deltaLabel}
           deltaValue={0}
           icon={<UserPlus size={16} />}
           color="#4ea8ff"
@@ -52,7 +80,7 @@ export function SocialTab({ configured, clientId, clientLoading }: TabDataProps)
           value={avgEngagement}
           suffix="%"
           decimals={1}
-          deltaLabel="vs last month"
+          deltaLabel={deltaLabel}
           deltaValue={0}
           icon={<Heart size={16} />}
           color="#f2634e"
@@ -71,7 +99,7 @@ export function SocialTab({ configured, clientId, clientLoading }: TabDataProps)
       </div>
 
       <div className="grid-2">
-        <Panel title="Follower growth" className="panel-chart">
+        <Panel title={`Follower growth (${rangeLabel})`} className="panel-chart">
           {followersTrend.length === 0 && !isLoading ? (
             <div className="live-empty">No follower history yet — connect Instagram, TikTok, or Facebook.</div>
           ) : (
@@ -84,7 +112,13 @@ export function SocialTab({ configured, clientId, clientLoading }: TabDataProps)
                   </linearGradient>
                 </defs>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
-                <XAxis dataKey="date" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} interval={6} />
+                <XAxis
+                  dataKey="date"
+                  tick={chartAxisTick}
+                  axisLine={chartAxisLine}
+                  tickLine={false}
+                  interval={Math.max(0, Math.ceil(followersTrend.length / 6) - 1)}
+                />
                 <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={40} />
                 <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
                 <Area type="monotone" dataKey="value" stroke="#3EF28C" strokeWidth={2} fill="url(#followerFill)" />

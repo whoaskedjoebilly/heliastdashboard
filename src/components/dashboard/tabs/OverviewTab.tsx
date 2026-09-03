@@ -106,7 +106,7 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
       </div>
 
       <div className="grid-2">
-        <Panel title="Traffic trend" className="panel-chart">
+        <Panel title={`Traffic trend (${rangeLabel})`} className="panel-chart">
           {isLoading ? (
             <div className="live-empty">Loading…</div>
           ) : traffic.length === 0 ? (

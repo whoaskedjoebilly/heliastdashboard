@@ -72,20 +72,66 @@ export function useDashboardClient() {
 export type RangeKey = "today" | "yesterday" | "7d" | "30d" | "90d";
 
 interface RangeConfig {
-  /** Number of days the window spans. */
+  /** Number of days the totals/delta window spans. */
   length: number;
   /** How many days back from today the window's END sits — 0 for windows
    * ending today, 1 for "yesterday" (which must exclude today). */
   endOffset: number;
+  /** Number of days shown in trend charts. A single day has no line to
+   * draw, so "today"/"yesterday" borrow a wider trailing window here for
+   * context while the hero totals still reflect just that one day. */
+  trendLength: number;
 }
 
 export const RANGE_CONFIG: Record<RangeKey, RangeConfig> = {
-  today: { length: 1, endOffset: 0 },
-  yesterday: { length: 1, endOffset: 1 },
-  "7d": { length: 7, endOffset: 0 },
-  "30d": { length: 30, endOffset: 0 },
-  "90d": { length: 90, endOffset: 0 },
+  today: { length: 1, endOffset: 0, trendLength: 14 },
+  yesterday: { length: 1, endOffset: 1, trendLength: 14 },
+  "7d": { length: 7, endOffset: 0, trendLength: 7 },
+  "30d": { length: 30, endOffset: 0, trendLength: 30 },
+  "90d": { length: 90, endOffset: 0, trendLength: 90 },
 };
+
+interface RangeBounds {
+  currentStartStr: string;
+  currentEndStr: string;
+  priorStartStr: string;
+  priorEndStr: string;
+  trendStartStr: string;
+}
+
+/** Resolves a RangeKey into concrete date-string boundaries (inclusive),
+ * shared by every hook below so "today"/"yesterday"/"7d"/"30d"/"90d" mean
+ * exactly the same thing on every tab. */
+function computeRangeBounds(range: RangeKey): RangeBounds {
+  const { length, endOffset, trendLength } = RANGE_CONFIG[range];
+  const dateStr = (d: Date) => d.toISOString().slice(0, 10);
+  const addDays = (d: Date, n: number) => {
+    const copy = new Date(d);
+    copy.setDate(copy.getDate() + n);
+    return copy;
+  };
+  const today = new Date();
+  return {
+    currentEndStr: dateStr(addDays(today, -endOffset)),
+    currentStartStr: dateStr(addDays(today, -endOffset - (length - 1))),
+    priorEndStr: dateStr(addDays(today, -endOffset - length)),
+    priorStartStr: dateStr(addDays(today, -endOffset - 2 * length)),
+    trendStartStr: dateStr(addDays(today, -endOffset - (trendLength - 1))),
+  };
+}
+
+/** For a "stock" metric (e.g. follower count) where summing daily values
+ * would be meaningless — picks the value as-of a given date (the latest
+ * reading on or before it, since sync data can have gaps) rather than
+ * summing. `rows` must be sorted ascending by date. */
+function valueAsOf<T extends { date: string; value: number }>(rows: T[], targetStr: string): number | null {
+  let result: number | null = null;
+  for (const row of rows) {
+    if (row.date > targetStr) break;
+    result = row.value;
+  }
+  return result;
+}
 
 interface OverviewData {
   sessionsTotal: number;
@@ -206,19 +252,7 @@ export function useOverviewData(clientId: string | null, range: RangeKey = "30d"
   }, [clientId]);
 
   const data = useMemo<OverviewData>(() => {
-    const { length, endOffset } = RANGE_CONFIG[range];
-    const dateStr = (d: Date) => d.toISOString().slice(0, 10);
-    const addDays = (d: Date, n: number) => {
-      const copy = new Date(d);
-      copy.setDate(copy.getDate() + n);
-      return copy;
-    };
-
-    const today = new Date();
-    const currentEndStr = dateStr(addDays(today, -endOffset));
-    const currentStartStr = dateStr(addDays(today, -endOffset - (length - 1)));
-    const priorEndStr = dateStr(addDays(today, -endOffset - length));
-    const priorStartStr = dateStr(addDays(today, -endOffset - 2 * length));
+    const { currentStartStr, currentEndStr, priorStartStr, priorEndStr, trendStartStr } = computeRangeBounds(range);
 
     const byDate = new Map<string, number>();
     const byDateConversions = new Map<string, number>();
@@ -228,9 +262,13 @@ export function useOverviewData(clientId: string | null, range: RangeKey = "30d"
     let priorSessionsTotal = 0;
     let priorConversionsTotal = 0;
     for (const row of raw.trafficRows) {
-      if (row.date >= currentStartStr && row.date <= currentEndStr) {
+      // Trend chart uses a wider window than the totals for today/yesterday
+      // (see RANGE_CONFIG.trendLength) so there's an actual line to draw.
+      if (row.date >= trendStartStr && row.date <= currentEndStr) {
         byDate.set(row.date, (byDate.get(row.date) ?? 0) + (row.sessions ?? 0));
         byDateConversions.set(row.date, (byDateConversions.get(row.date) ?? 0) + (row.conversions ?? 0));
+      }
+      if (row.date >= currentStartStr && row.date <= currentEndStr) {
         byChannel.set(row.channel ?? "Other", (byChannel.get(row.channel ?? "Other") ?? 0) + (row.sessions ?? 0));
         sessionsTotal += row.sessions ?? 0;
         conversionsTotal += row.conversions ?? 0;
@@ -282,17 +320,29 @@ interface SeoData {
   health: SeoHealth;
 }
 
-const EMPTY_SEO: SeoData = {
+interface SeoStatic {
+  keywords: KeywordRow[];
+  health: SeoHealth;
+}
+
+const EMPTY_SEO_STATIC: SeoStatic = {
   keywords: [],
-  organicSessions: [],
   health: { indexed: 0, crawlErrors: 0, avgPosition: 0, backlinks: 0 },
 };
 
+interface RawOrganicRow {
+  date: string;
+  sessions: number | null;
+}
+
 /** Note: indexed pages / crawl errors / backlinks have no source table yet —
  * they arrive with the Google Search Console integration (Phase 3/6/7).
- * avgPosition is computed here from tracked keywords in the meantime. */
-export function useSeoData(clientId: string | null) {
-  const [data, setData] = useState<SeoData>(EMPTY_SEO);
+ * avgPosition is computed here from tracked keywords in the meantime.
+ * Keywords/health are point-in-time snapshots (unaffected by `range`);
+ * organicSessions is windowed the same way Overview's traffic chart is. */
+export function useSeoData(clientId: string | null, range: RangeKey = "30d") {
+  const [staticData, setStaticData] = useState<SeoStatic>(EMPTY_SEO_STATIC);
+  const [trafficRows, setTrafficRows] = useState<RawOrganicRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -303,9 +353,9 @@ export function useSeoData(clientId: string | null) {
 
     (async () => {
       setLoading(true);
-      const since = new Date();
-      since.setDate(since.getDate() - 14);
-      const sinceStr = since.toISOString().slice(0, 10);
+      const since180 = new Date();
+      since180.setDate(since180.getDate() - 180);
+      const since180Str = since180.toISOString().slice(0, 10);
 
       const [keywordsRes, trafficRes] = await Promise.all([
         supabase
@@ -319,7 +369,7 @@ export function useSeoData(clientId: string | null) {
           .select("date, sessions, channel")
           .eq("client_id", clientId)
           .eq("channel", "organic")
-          .gte("date", sinceStr)
+          .gte("date", since180Str)
           .order("date", { ascending: true }),
       ]);
 
@@ -345,19 +395,13 @@ export function useSeoData(clientId: string | null) {
         })
         .sort((a, b) => a.pos - b.pos);
 
-      const avgPosition =
-        keywords.length > 0 ? keywords.reduce((a, k) => a + k.pos, 0) / keywords.length : 0;
+      const avgPosition = keywords.length > 0 ? keywords.reduce((a, k) => a + k.pos, 0) / keywords.length : 0;
 
-      const organicSessions: TrendPoint[] = (trafficRes.data ?? []).map((row) => ({
-        date: formatDay(row.date),
-        value: row.sessions ?? 0,
-      }));
-
-      setData({
+      setStaticData({
         keywords,
-        organicSessions,
         health: { indexed: 0, crawlErrors: 0, avgPosition: Math.round(avgPosition * 10) / 10, backlinks: 0 },
       });
+      setTrafficRows(trafficRes.data ?? []);
       setLoading(false);
     })();
 
@@ -366,19 +410,42 @@ export function useSeoData(clientId: string | null) {
     };
   }, [clientId]);
 
+  const data = useMemo<SeoData>(() => {
+    const { trendStartStr, currentEndStr } = computeRangeBounds(range);
+    const byDate = new Map<string, number>();
+    for (const row of trafficRows) {
+      if (row.date >= trendStartStr && row.date <= currentEndStr) {
+        byDate.set(row.date, (byDate.get(row.date) ?? 0) + (row.sessions ?? 0));
+      }
+    }
+    const organicSessions: TrendPoint[] = Array.from(byDate.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, value]) => ({ date: formatDay(date), value }));
+    return { ...staticData, organicSessions };
+  }, [staticData, trafficRows, range]);
+
   return { data, loading };
 }
 
 interface AdsData {
   campaigns: CampaignRow[];
   conversionsTrend: TrendPoint[];
-  conversions30d: number;
+  conversionsTotal: number;
+  conversionsDeltaPct: number;
 }
 
-const EMPTY_ADS: AdsData = { campaigns: [], conversionsTrend: [], conversions30d: 0 };
+interface RawConversionRow {
+  date: string;
+  conversions: number | null;
+}
 
-export function useAdsData(clientId: string | null) {
-  const [data, setData] = useState<AdsData>(EMPTY_ADS);
+/** Ad spend/ROAS have no daily-granularity source table (dashboard_ad_campaigns
+ * is a point-in-time sync snapshot, same limitation as Overview's ad spend) so
+ * campaigns stay unwindowed; conversions come from dashboard_daily_traffic and
+ * are windowed by `range` the same way Overview's are. */
+export function useAdsData(clientId: string | null, range: RangeKey = "30d") {
+  const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
+  const [trafficRows, setTrafficRows] = useState<RawConversionRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -389,9 +456,9 @@ export function useAdsData(clientId: string | null) {
 
     (async () => {
       setLoading(true);
-      const since = new Date();
-      since.setDate(since.getDate() - 30);
-      const sinceStr = since.toISOString().slice(0, 10);
+      const since180 = new Date();
+      since180.setDate(since180.getDate() - 180);
+      const since180Str = since180.toISOString().slice(0, 10);
 
       const [campaignsRes, trafficRes] = await Promise.all([
         supabase
@@ -404,7 +471,7 @@ export function useAdsData(clientId: string | null) {
           .from("dashboard_daily_traffic")
           .select("date, conversions")
           .eq("client_id", clientId)
-          .gte("date", sinceStr)
+          .gte("date", since180Str)
           .order("date", { ascending: true }),
       ]);
 
@@ -412,25 +479,16 @@ export function useAdsData(clientId: string | null) {
       if (campaignsRes.error) console.error("Failed to load campaigns", campaignsRes.error);
       if (trafficRes.error) console.error("Failed to load conversions", trafficRes.error);
 
-      const campaigns: CampaignRow[] = (campaignsRes.data ?? []).map((c) => ({
-        name: c.name,
-        channel: c.platform === "google_ads" ? "Google Ads" : c.platform === "meta_ads" ? "Meta Ads" : c.platform ?? "—",
-        spend: c.spend ?? 0,
-        roas: c.roas ?? 0,
-        status: c.status === "watch" ? "watch" : "healthy",
-      }));
-
-      const byDate = new Map<string, number>();
-      let conversions30d = 0;
-      for (const row of trafficRes.data ?? []) {
-        byDate.set(row.date, (byDate.get(row.date) ?? 0) + (row.conversions ?? 0));
-        conversions30d += row.conversions ?? 0;
-      }
-      const conversionsTrend: TrendPoint[] = Array.from(byDate.entries())
-        .sort(([a], [b]) => (a < b ? -1 : 1))
-        .map(([date, value]) => ({ date: formatDay(date), value }));
-
-      setData({ campaigns, conversionsTrend, conversions30d });
+      setCampaigns(
+        (campaignsRes.data ?? []).map((c) => ({
+          name: c.name,
+          channel: c.platform === "google_ads" ? "Google Ads" : c.platform === "meta_ads" ? "Meta Ads" : c.platform ?? "—",
+          spend: c.spend ?? 0,
+          roas: c.roas ?? 0,
+          status: c.status === "watch" ? "watch" : "healthy",
+        }))
+      );
+      setTrafficRows(trafficRes.data ?? []);
       setLoading(false);
     })();
 
@@ -439,18 +497,55 @@ export function useAdsData(clientId: string | null) {
     };
   }, [clientId]);
 
+  const data = useMemo<AdsData>(() => {
+    const { currentStartStr, currentEndStr, priorStartStr, priorEndStr, trendStartStr } = computeRangeBounds(range);
+    const byDate = new Map<string, number>();
+    let conversionsTotal = 0;
+    let priorConversionsTotal = 0;
+    for (const row of trafficRows) {
+      if (row.date >= trendStartStr && row.date <= currentEndStr) {
+        byDate.set(row.date, (byDate.get(row.date) ?? 0) + (row.conversions ?? 0));
+      }
+      if (row.date >= currentStartStr && row.date <= currentEndStr) {
+        conversionsTotal += row.conversions ?? 0;
+      } else if (row.date >= priorStartStr && row.date <= priorEndStr) {
+        priorConversionsTotal += row.conversions ?? 0;
+      }
+    }
+    const conversionsTrend: TrendPoint[] = Array.from(byDate.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, value]) => ({ date: formatDay(date), value }));
+
+    return { campaigns, conversionsTrend, conversionsTotal, conversionsDeltaPct: pctDelta(conversionsTotal, priorConversionsTotal) };
+  }, [campaigns, trafficRows, range]);
+
   return { data, loading };
 }
 
 interface SocialData {
   platforms: SocialPlatformStat[];
   followersTrend: TrendPoint[];
+  followersTotal: number;
+  newFollowers: number;
+  followersDeltaPct: number;
 }
 
-const EMPTY_SOCIAL: SocialData = { platforms: [], followersTrend: [] };
+interface RawSocialRow {
+  platform: string;
+  followers: number | null;
+  engagement_rate: number | null;
+  date: string;
+}
 
-export function useSocialData(clientId: string | null) {
-  const [data, setData] = useState<SocialData>(EMPTY_SOCIAL);
+/** Followers/engagement are "stock" metrics (a level, not a daily flow) —
+ * summing them across days would be meaningless. So unlike sessions/
+ * conversions, `range` doesn't sum a window here: it picks the reading
+ * as-of the window's end date (today for every range except "yesterday")
+ * and compares it against the reading as-of the window's start, i.e.
+ * "growth over the selected period" — the standard way follower counts
+ * are reported. */
+export function useSocialData(clientId: string | null, range: RangeKey = "30d") {
+  const [rows, setRows] = useState<RawSocialRow[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -461,41 +556,21 @@ export function useSocialData(clientId: string | null) {
 
     (async () => {
       setLoading(true);
-      const since = new Date();
-      since.setDate(since.getDate() - 30);
-      const sinceStr = since.toISOString().slice(0, 10);
+      const since180 = new Date();
+      since180.setDate(since180.getDate() - 180);
+      const since180Str = since180.toISOString().slice(0, 10);
 
-      const { data: rows, error } = await supabase
+      const { data, error } = await supabase
         .from("dashboard_social_stats")
         .select("platform, followers, engagement_rate, date")
         .eq("client_id", clientId)
-        .gte("date", sinceStr)
+        .gte("date", since180Str)
         .order("date", { ascending: true });
 
       if (cancelled) return;
       if (error) console.error("Failed to load social stats", error);
 
-      const rowsByPlatform = new Map<string, { followers: number; engagement_rate: number; date: string }[]>();
-      const byDateTotal = new Map<string, number>();
-      for (const row of rows ?? []) {
-        const list = rowsByPlatform.get(row.platform) ?? [];
-        list.push(row);
-        rowsByPlatform.set(row.platform, list);
-        byDateTotal.set(row.date, (byDateTotal.get(row.date) ?? 0) + (row.followers ?? 0));
-      }
-
-      const platforms: SocialPlatformStat[] = Array.from(rowsByPlatform.entries()).map(([platform, readings]) => {
-        const latest = readings[readings.length - 1];
-        const prior = readings.length > 1 ? readings[readings.length - 2] : null;
-        const delta = prior && prior.followers > 0 ? Math.round(((latest.followers - prior.followers) / prior.followers) * 1000) / 10 : 0;
-        return { platform, followers: latest.followers ?? 0, delta, engagement: latest.engagement_rate ?? 0 };
-      });
-
-      const followersTrend: TrendPoint[] = Array.from(byDateTotal.entries())
-        .sort(([a], [b]) => (a < b ? -1 : 1))
-        .map(([date, value]) => ({ date: formatDay(date), value }));
-
-      setData({ platforms, followersTrend });
+      setRows(data ?? []);
       setLoading(false);
     })();
 
@@ -503,6 +578,47 @@ export function useSocialData(clientId: string | null) {
       cancelled = true;
     };
   }, [clientId]);
+
+  const data = useMemo<SocialData>(() => {
+    const { currentEndStr, priorEndStr, trendStartStr } = computeRangeBounds(range);
+
+    const rowsByPlatform = new Map<string, RawSocialRow[]>();
+    const byDateTotal = new Map<string, number>();
+    for (const row of rows) {
+      const list = rowsByPlatform.get(row.platform) ?? [];
+      list.push(row);
+      rowsByPlatform.set(row.platform, list);
+      if (row.date >= trendStartStr && row.date <= currentEndStr) {
+        byDateTotal.set(row.date, (byDateTotal.get(row.date) ?? 0) + (row.followers ?? 0));
+      }
+    }
+
+    const platforms: SocialPlatformStat[] = Array.from(rowsByPlatform.entries()).map(([platform, readings]) => {
+      const followerReadings = readings.map((r) => ({ date: r.date, value: r.followers ?? 0 }));
+      const engagementReadings = readings.map((r) => ({ date: r.date, value: r.engagement_rate ?? 0 }));
+      const followers = valueAsOf(followerReadings, currentEndStr) ?? 0;
+      const priorFollowers = valueAsOf(followerReadings, priorEndStr) ?? followers;
+      const engagement = valueAsOf(engagementReadings, currentEndStr) ?? 0;
+      const delta = priorFollowers > 0 ? Math.round(((followers - priorFollowers) / priorFollowers) * 1000) / 10 : 0;
+      return { platform, followers, delta, engagement };
+    });
+
+    const followersTrend: TrendPoint[] = Array.from(byDateTotal.entries())
+      .sort(([a], [b]) => (a < b ? -1 : 1))
+      .map(([date, value]) => ({ date: formatDay(date), value }));
+
+    const followersTotal = platforms.reduce((a, p) => a + p.followers, 0);
+    // Sum each platform's prior-window value directly rather than deriving
+    // it from `delta`, so rounding in the per-platform % doesn't compound.
+    const priorFollowersTotal = Array.from(rowsByPlatform.values()).reduce((a, readings) => {
+      const followerReadings = readings.map((r) => ({ date: r.date, value: r.followers ?? 0 }));
+      return a + (valueAsOf(followerReadings, priorEndStr) ?? 0);
+    }, 0);
+    const newFollowers = followersTotal - priorFollowersTotal;
+    const followersDeltaPct = pctDelta(followersTotal, priorFollowersTotal);
+
+    return { platforms, followersTrend, followersTotal, newFollowers, followersDeltaPct };
+  }, [rows, range]);
 
   return { data, loading };
 }
