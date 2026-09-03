@@ -25,10 +25,23 @@ export function Globe({ visitors }: GlobeProps) {
       window.matchMedia &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     if (reduceMotion) return undefined;
-    const t = setInterval(() => {
-      setLambda0((prev) => (prev + 0.6) % 360);
-    }, 90);
-    return () => clearInterval(t);
+
+    // requestAnimationFrame + delta time instead of a fixed setInterval step:
+    // a ~90ms interval only updates ~11 times/sec, which reads as a jerky
+    // stutter rather than a spin. rAF drives a proper ~60fps tween, and a
+    // faster rate (full turn in ~22s vs. the old ~54s) makes the rotation
+    // actually noticeable at a glance instead of blending into a still image.
+    const DEG_PER_SEC = 16;
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      const dt = (now - last) / 1000;
+      last = now;
+      setLambda0((prev) => (prev + DEG_PER_SEC * dt) % 360);
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
   }, []);
 
   // The graticule rotates with lambda0 too, so the wireframe and the

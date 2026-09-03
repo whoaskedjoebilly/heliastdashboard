@@ -1628,6 +1628,23 @@ nav {
   }
   .rb-header-actions {
     width: 100%;
-    justify-content: flex-start;
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .rb-header-actions > .dd-wrap {
+    width: 100%;
+  }
+  .rb-header-actions > .dd-wrap .dd-trigger {
+    width: 100%;
+    justify-content: space-between;
+  }
+  /* A right-aligned dropdown (date range, save) assumes its trigger sits
+   * near the right edge of a wide header — on a narrow screen the trigger
+   * is flush left instead, so anchoring the panel's right edge to it pushes
+   * the panel off the left of the viewport. Every dropdown left-aligns on
+   * mobile instead, which is safe since every trigger here is full-width. */
+  .dd-panel-right {
+    right: auto;
+    left: 0;
   }
 }
