@@ -18,6 +18,7 @@ interface GlobeProps {
 
 export function Globe({ visitors }: GlobeProps) {
   const [lambda0, setLambda0] = useState(GLOBE_LAMBDA0_START);
+  const [sweepDeg, setSweepDeg] = useState(0);
 
   useEffect(() => {
     const reduceMotion =
@@ -33,13 +34,24 @@ export function Globe({ visitors }: GlobeProps) {
     // A reduced-motion preference tones this down to a slow crawl rather
     // than freezing it outright — this globe *is* the page's live-status
     // indicator, so leaving it fully static would defeat its purpose.
+    //
+    // The radar-sweep wedge used to spin on its own CSS keyframe animation
+    // (`transform: rotate()` on an SVG <g>), independent of this loop —
+    // some browsers don't reliably animate CSS transforms on SVG group
+    // elements, which left the sweep visibly frozen even once this rAF loop
+    // was already turning the globe itself. Driving both from the same
+    // state update, applied as a plain SVG `transform` attribute rather
+    // than a CSS animation, keeps them on one rendering path that's already
+    // confirmed to work.
     const DEG_PER_SEC = reduceMotion ? 2 : 16;
+    const SWEEP_DEG_PER_SEC = reduceMotion ? 8 : 60;
     let raf = 0;
     let last = performance.now();
     const tick = (now: number) => {
       const dt = (now - last) / 1000;
       last = now;
       setLambda0((prev) => (prev + DEG_PER_SEC * dt) % 360);
+      setSweepDeg((prev) => (prev + SWEEP_DEG_PER_SEC * dt) % 360);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
@@ -108,7 +120,7 @@ export function Globe({ visitors }: GlobeProps) {
           {graticule.map((d, i) => (
             <path key={i} d={d} fill="none" stroke="#2B3B32" strokeWidth="0.6" opacity="0.75" />
           ))}
-          <g className="globe-sweep">
+          <g transform={`rotate(${sweepDeg.toFixed(1)})`}>
             <path d={sweepWedgePath(GLOBE_R, 22)} fill="url(#sweepGradient)" />
           </g>
           {dots.map((d) => (

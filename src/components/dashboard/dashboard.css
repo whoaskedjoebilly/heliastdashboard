@@ -729,21 +729,8 @@ nav {
     opacity: 1;
   }
 }
-.globe-sweep {
-  animation: globeSweep 6s linear infinite;
-  transform-origin: 0px 0px;
-}
-@keyframes globeSweep {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
 @media (prefers-reduced-motion: reduce) {
-  .globe-limb-glow,
-  .globe-sweep {
+  .globe-limb-glow {
     animation: none;
   }
 }
