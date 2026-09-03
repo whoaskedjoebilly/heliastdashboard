@@ -6,6 +6,7 @@ import { Globe } from "../Globe";
 import { LIVE_PAGES, makeVisitor, randomFrom } from "../mock-data";
 import type { TabDataProps, Visitor } from "../types";
 import { useLiveVisitors } from "@/lib/dashboard-data";
+import { humanizePagePath } from "@/lib/page-labels";
 
 export function LiveTab({ configured, clientId, clientLoading }: TabDataProps) {
   const [demoVisitors, setDemoVisitors] = useState<Visitor[]>(() =>
@@ -126,7 +127,7 @@ export function LiveTab({ configured, clientId, clientLoading }: TabDataProps) {
             {pageCounts.length === 0 && <div className="live-empty">No active visitors right now.</div>}
             {pageCounts.map((p) => (
               <div className="channel-row" key={p.page}>
-                <div className="channel-label">{p.page}</div>
+                <div className="channel-label">{humanizePagePath(p.page)}</div>
                 <div className="channel-bar-track">
                   <div className="channel-bar-fill" style={{ width: `${(p.count / maxCount) * 100}%` }} />
                 </div>
@@ -143,7 +144,7 @@ export function LiveTab({ configured, clientId, clientLoading }: TabDataProps) {
               <div className="live-visitor-row" key={v.id}>
                 <span className="live-visitor-dot" />
                 <div className="live-visitor-info">
-                  <div className="live-visitor-page">{v.page}</div>
+                  <div className="live-visitor-page">{humanizePagePath(v.page)}</div>
                   <div className="live-visitor-meta">
                     {v.location} · {v.device}
                   </div>

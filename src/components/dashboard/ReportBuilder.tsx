@@ -10,6 +10,7 @@ import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle
 import { useReportData } from "@/lib/reports/useReportData";
 import { DATASETS, defaultConfig, formatMetricValue, type ChartType, type Dataset, type FilterRule, type ReportConfig } from "@/lib/reports/registry";
 import { DEFAULT_REPORT_RANGE } from "@/lib/reports/date-range";
+import { humanizePagePath } from "@/lib/page-labels";
 
 interface ReportBuilderProps {
   configured: boolean;
@@ -26,6 +27,16 @@ const SERIES_COLORS = ["#3ef28c", "#4ea8ff", "#f2a93e", "#c084fc", "#f2634e"];
 function shortDateLabel(dateStr: string): string {
   const [y, m, d] = dateStr.split("-").map(Number);
   return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+/** Grouped rows carry whatever raw value the dimension holds — a route slug
+ * for "page_path", an ISO date for "date" — reformat just for display so a
+ * report reads like "FL-41 glasses product page" / "Aug 23" instead of raw
+ * data plumbing. */
+function displayLabel(rawLabel: string, dataset: Dataset, dimension: string): string {
+  if (dimension === "date") return shortDateLabel(rawLabel);
+  if (dataset === "pages" && dimension === "page_path") return humanizePagePath(rawLabel);
+  return rawLabel;
 }
 const CHART_TYPES: { key: ChartType; label: string; icon: typeof Table2 }[] = [
   { key: "bar", label: "Bar chart", icon: BarChart3 },
@@ -54,8 +65,8 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
   const activeChart = CHART_TYPES.find((c) => c.key === config.chartType) ?? CHART_TYPES[0];
 
   const chartData = useMemo(
-    () => rows.map((r) => (config.dimension === "date" ? { ...r, label: shortDateLabel(String(r.label)) } : { ...r })),
-    [rows, config.dimension]
+    () => rows.map((r) => ({ ...r, label: displayLabel(String(r.label), config.dataset, config.dimension) })),
+    [rows, config.dataset, config.dimension]
   );
   const xAxisInterval = Math.max(0, Math.ceil(chartData.length / 8) - 1);
 
@@ -346,7 +357,7 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
               <tbody>
                 {rows.map((r) => (
                   <tr key={r.label}>
-                    <td>{r.label}</td>
+                    <td>{displayLabel(String(r.label), config.dataset, config.dimension)}</td>
                     {config.metrics.map((mKey) => {
                       const format = def.metrics.find((m) => m.key === mKey)?.format ?? "number";
                       return (

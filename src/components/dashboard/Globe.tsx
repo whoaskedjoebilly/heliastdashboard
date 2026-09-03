@@ -24,14 +24,16 @@ export function Globe({ visitors }: GlobeProps) {
       typeof window !== "undefined" &&
       window.matchMedia &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (reduceMotion) return undefined;
 
     // requestAnimationFrame + delta time instead of a fixed setInterval step:
     // a ~90ms interval only updates ~11 times/sec, which reads as a jerky
     // stutter rather than a spin. rAF drives a proper ~60fps tween, and a
     // faster rate (full turn in ~22s vs. the old ~54s) makes the rotation
     // actually noticeable at a glance instead of blending into a still image.
-    const DEG_PER_SEC = 16;
+    // A reduced-motion preference tones this down to a slow crawl rather
+    // than freezing it outright — this globe *is* the page's live-status
+    // indicator, so leaving it fully static would defeat its purpose.
+    const DEG_PER_SEC = reduceMotion ? 2 : 16;
     let raf = 0;
     let last = performance.now();
     const tick = (now: number) => {
