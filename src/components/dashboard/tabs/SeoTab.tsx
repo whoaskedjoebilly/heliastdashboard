@@ -46,21 +46,24 @@ export function SeoTab({ configured, clientId, clientLoading, range }: SeoTabPro
   // below), so this only applies to the demo path.
   const mockIndexed = endpointWindow(INDEXED_PAGES_LONG, RANGE_CONFIG[range]);
   const mockBacklinks = endpointWindow(BACKLINKS_LONG, RANGE_CONFIG[range]);
-  const indexed = configured ? health.indexed : mockIndexed.value;
+  const indexedNow = configured ? health.indexed : mockIndexed.value;
+  const indexedGrowth = configured ? 0 : Math.round(mockIndexed.value - mockIndexed.priorValue);
   const indexedDelta = configured ? 0 : mockIndexed.deltaPct;
-  const backlinks = configured ? health.backlinks : mockBacklinks.value;
+  const backlinksNow = configured ? health.backlinks : mockBacklinks.value;
+  const backlinksGrowth = configured ? 0 : Math.round(mockBacklinks.value - mockBacklinks.priorValue);
   const backlinksDelta = configured ? 0 : mockBacklinks.deltaPct;
 
   return (
     <>
       <div className="hero-row">
         <MetricHero
-          label="Pages indexed"
-          value={indexed}
+          label="New pages indexed"
+          value={indexedGrowth}
           deltaLabel={configured ? "vs last month" : deltaLabel}
           deltaValue={indexedDelta}
           icon={<FileSearch size={16} />}
           color="#3ef28c"
+          note={configured ? undefined : `${indexedNow.toLocaleString()} indexed now`}
         />
         <MetricHero
           label="Crawl errors"
@@ -82,12 +85,13 @@ export function SeoTab({ configured, clientId, clientLoading, range }: SeoTabPro
           color="#4ea8ff"
         />
         <MetricHero
-          label="Backlinks"
-          value={backlinks}
+          label="New backlinks"
+          value={backlinksGrowth}
           deltaLabel={configured ? "vs last month" : deltaLabel}
           deltaValue={backlinksDelta}
           icon={<Link2 size={16} />}
           color="#c084fc"
+          note={configured ? undefined : `${backlinksNow.toLocaleString()} total now`}
         />
       </div>
       {configured && (

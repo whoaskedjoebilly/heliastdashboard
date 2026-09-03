@@ -59,20 +59,21 @@ export function SocialTab({ configured, clientId, clientLoading, range }: Social
     <>
       <div className="hero-row">
         <MetricHero
-          label="Total followers"
-          value={totalFollowers}
-          deltaLabel={deltaLabel}
-          deltaValue={followersDeltaPct}
-          icon={<Users size={16} />}
-          color="#3ef28c"
-          sparkline={followersSpark}
-        />
-        <MetricHero
-          label="New followers"
+          label="Follower growth"
           value={newFollowers}
           deltaLabel={deltaLabel}
-          deltaValue={0}
+          deltaValue={followersDeltaPct}
           icon={<UserPlus size={16} />}
+          color="#3ef28c"
+          sparkline={followersSpark}
+          note={`${totalFollowers.toLocaleString()} total now`}
+        />
+        <MetricHero
+          label="Total followers"
+          value={totalFollowers}
+          deltaLabel="current total"
+          deltaValue={0}
+          icon={<Users size={16} />}
           color="#4ea8ff"
         />
         <MetricHero

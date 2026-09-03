@@ -15,6 +15,10 @@ interface MetricHeroProps {
   icon?: ReactNode;
   color?: string;
   sparkline?: number[];
+  /** Small muted line under the delta row — for a headline that now shows
+   * a period-scoped change (e.g. "+56 followers this week"), this is where
+   * the always-current running total ("9,137 total now") lives instead. */
+  note?: string;
 }
 
 export function MetricHero({
@@ -29,6 +33,7 @@ export function MetricHero({
   icon,
   color,
   sparkline,
+  note,
 }: MetricHeroProps) {
   const sparklineData = sparkline?.map((v) => ({ value: v }));
 
@@ -43,6 +48,7 @@ export function MetricHero({
         <Delta value={deltaValue} invert={invert} />
         <span className="metric-delta-caption">{deltaLabel}</span>
       </div>
+      {note && <div className="metric-note">{note}</div>}
       {sparklineData && sparklineData.length > 1 && <Sparkline data={sparklineData} color={color} />}
     </div>
   );

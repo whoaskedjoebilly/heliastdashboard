@@ -466,6 +466,12 @@ nav {
 .metric-delta-caption {
   color: var(--text-muted);
 }
+.metric-note {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 5px;
+  opacity: 0.75;
+}
 .metric-sparkline {
   height: 32px;
   margin: 10px -4px -4px;

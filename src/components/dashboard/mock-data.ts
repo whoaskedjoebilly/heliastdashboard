@@ -18,8 +18,9 @@ export const DEMO_ACCOUNT = { email: "team@migrainemend.com", password: "demo123
 
 export const BUSINESS: Business = { name: "MigraineMend", plan: "Premium", since: "Mar 2026" };
 
-export function genTrend(days: number, base: number, drift: number, noise: number): TrendPoint[] {
+export function genTrend(days: number, base: number, drift: number, noise: number, decimals = 0): TrendPoint[] {
   const out: TrendPoint[] = [];
+  const scale = 10 ** decimals;
   let v = base;
   const today = new Date();
   for (let i = days - 1; i >= 0; i--) {
@@ -28,7 +29,31 @@ export function genTrend(days: number, base: number, drift: number, noise: numbe
     d.setDate(d.getDate() - i);
     out.push({
       date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
-      value: Math.round(v),
+      value: Math.round(v * scale) / scale,
+    });
+  }
+  return out;
+}
+
+/** Like genTrend, but for ratio metrics (ROAS) that shouldn't wander
+ * indefinitely — genTrend's `v` carries forward day to day (a random walk),
+ * which is right for a count that can trend up or down over a business's
+ * lifetime, but wrong for a ratio: over 180 days that walk can drift the
+ * value arbitrarily far from its baseline (e.g. a "3.6x ROAS" business
+ * randomly ending up at 0.5x). This instead samples each day independently
+ * around `base`, so it stays bounded — day-to-day noise without runaway
+ * drift. */
+export function genStationary(days: number, base: number, noise: number, decimals = 0): TrendPoint[] {
+  const out: TrendPoint[] = [];
+  const scale = 10 ** decimals;
+  const today = new Date();
+  for (let i = days - 1; i >= 0; i--) {
+    const v = Math.max(0, base + (Math.random() - 0.5) * noise);
+    const d = new Date(today);
+    d.setDate(d.getDate() - i);
+    out.push({
+      date: d.toLocaleDateString("en-US", { month: "short", day: "numeric" }),
+      value: Math.round(v * scale) / scale,
     });
   }
   return out;
@@ -100,6 +125,21 @@ export function endpointWindow(long: TrendPoint[], config: RangeConfigLike): End
   return { trend, value, priorValue, deltaPct };
 }
 
+/** For a ratio metric (ROAS) where neither summing nor an endpoint lookup
+ * makes sense — averages the window instead. */
+export function windowAverage(long: TrendPoint[], config: RangeConfigLike): RangeWindow {
+  const { length, endOffset, trendLength } = config;
+  const end = long.length - endOffset;
+  const current = long.slice(end - length, end);
+  const prior = long.slice(end - 2 * length, end - length);
+  const avg = (points: TrendPoint[]) => (points.length === 0 ? 0 : points.reduce((a, p) => a + p.value, 0) / points.length);
+  const total = avg(current);
+  const priorTotal = avg(prior);
+  const deltaPct = priorTotal === 0 ? 0 : Math.round(((total - priorTotal) / priorTotal) * 1000) / 10;
+  const trend = long.slice(end - trendLength, end);
+  return { trend, total, deltaPct };
+}
+
 export const CHANNEL_SPLIT: ChannelSplit[] = [
   { channel: "Organic search", value: 44 },
   { channel: "Paid social", value: 27 },
@@ -136,6 +176,11 @@ export const BACKLINKS_LONG: TrendPoint[] = genTrend(180, 260, 0.46, 4);
 // of the selected range — a genuine flow metric like sessions/conversions,
 // windowed the same way (sum over the window vs. the prior window).
 export const AD_SPEND_LONG: TrendPoint[] = genTrend(180, 148, 0.06, 26);
+
+// Daily blended ROAS — a ratio, so it's neither summed (windowMetrics) nor
+// read as a running total (endpointWindow); the window's *average* is what
+// a "ROAS over the last 7 days" figure means, via windowAverage.
+export const ROAS_LONG: TrendPoint[] = genStationary(180, 3.6, 1.2, 1);
 
 // Per-platform 180-day follower series so the range toggle can show real
 // "growth over the selected period" numbers on the Social tab (a follower

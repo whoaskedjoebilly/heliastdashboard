@@ -5,7 +5,7 @@ import { DollarSign, Target, CheckCircle2, Receipt } from "lucide-react";
 import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { StatusDot } from "../ui/StatusDot";
-import { AD_SPEND_LONG, CAMPAIGNS, CONVERSIONS_LONG, windowMetrics } from "../mock-data";
+import { AD_SPEND_LONG, CAMPAIGNS, CONVERSIONS_LONG, ROAS_LONG, windowAverage, windowMetrics } from "../mock-data";
 import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
 import { useAdsData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
@@ -36,6 +36,7 @@ export function AdsTab({ configured, clientId, clientLoading, range }: AdsTabPro
 
   const mockConversions = windowMetrics(CONVERSIONS_LONG, RANGE_CONFIG[range]);
   const mockAdSpend = windowMetrics(AD_SPEND_LONG, RANGE_CONFIG[range]);
+  const mockRoas = windowAverage(ROAS_LONG, RANGE_CONFIG[range]);
 
   const campaigns = configured ? data.campaigns : CAMPAIGNS;
   const conversionsTrend = configured ? data.conversionsTrend : mockConversions.trend;
@@ -52,7 +53,10 @@ export function AdsTab({ configured, clientId, clientLoading, range }: AdsTabPro
   const totalSpend = configured ? campaignSpend : mockAdSpend.total;
   const spendDeltaPct = configured ? 0 : mockAdSpend.deltaPct;
   const spendDeltaLabel = configured ? "current total" : deltaLabel;
-  const blendedRoas = campaignSpend > 0 ? campaigns.reduce((a, c) => a + c.roas * c.spend, 0) / campaignSpend : 0;
+  const campaignRoas = campaignSpend > 0 ? campaigns.reduce((a, c) => a + c.roas * c.spend, 0) / campaignSpend : 0;
+  const blendedRoas = configured ? campaignRoas : mockRoas.total;
+  const roasDeltaPct = configured ? 0 : mockRoas.deltaPct;
+  const roasDeltaLabel = configured ? "all active campaigns" : deltaLabel;
   const costPerConversion = conversionsTotal > 0 ? totalSpend / conversionsTotal : 0;
   const conversionsSpark = conversionsTrend.slice(-12).map((t) => t.value);
 
@@ -74,10 +78,11 @@ export function AdsTab({ configured, clientId, clientLoading, range }: AdsTabPro
           value={blendedRoas}
           suffix="×"
           decimals={1}
-          deltaLabel="all active campaigns"
-          deltaValue={0}
+          deltaLabel={roasDeltaLabel}
+          deltaValue={roasDeltaPct}
           icon={<Target size={16} />}
           color="#c084fc"
+          note={configured ? undefined : `${campaignRoas.toFixed(1)}× across active campaigns`}
         />
         <MetricHero
           label="Conversions"
