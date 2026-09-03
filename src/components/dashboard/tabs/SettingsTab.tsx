@@ -13,6 +13,7 @@ interface SettingsTabProps {
 
 const PLATFORM_LABELS: Record<string, string> = {
   gsc: "Google Search Console",
+  ga4: "Google Analytics 4",
   gads: "Google Ads",
   meta_ads: "Meta Ads",
   instagram: "Instagram",

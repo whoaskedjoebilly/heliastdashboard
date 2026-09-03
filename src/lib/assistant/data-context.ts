@@ -10,7 +10,7 @@ export async function buildClientDataDigest(db: SupabaseClient, clientId: string
   since90.setDate(since90.getDate() - 90);
   const since90Str = since90.toISOString().slice(0, 10);
 
-  const [clientRes, trafficRes, keywordsRes, campaignsRes, socialRes] = await Promise.all([
+  const [clientRes, trafficRes, keywordsRes, campaignsRes, socialRes, pagesRes] = await Promise.all([
     db.from("dashboard_clients").select("name, plan, created_at").eq("id", clientId).maybeSingle(),
     db
       .from("dashboard_daily_traffic")
@@ -36,6 +36,12 @@ export async function buildClientDataDigest(db: SupabaseClient, clientId: string
       .eq("client_id", clientId)
       .gte("date", since90Str)
       .order("date", { ascending: true }),
+    db
+      .from("dashboard_ga4_pages")
+      .select("date, page_path, sessions, engaged_sessions, bounce_rate, avg_engagement_sec, page_views")
+      .eq("client_id", clientId)
+      .gte("date", since90Str)
+      .order("date", { ascending: true }),
   ]);
 
   const client = clientRes.data;
@@ -43,6 +49,7 @@ export async function buildClientDataDigest(db: SupabaseClient, clientId: string
   const keywords = keywordsRes.data ?? [];
   const campaigns = campaignsRes.data ?? [];
   const social = socialRes.data ?? [];
+  const pages = pagesRes.data ?? [];
 
   const lines: string[] = [];
   lines.push(`# Client: ${client?.name ?? "Unknown"} (${client?.plan ?? "no plan"} plan)`);
@@ -88,6 +95,56 @@ export async function buildClientDataDigest(db: SupabaseClient, clientId: string
     lines.push("date | platform | followers | engagement_rate");
     for (const row of social) {
       lines.push(`${row.date} | ${row.platform} | ${row.followers} | ${row.engagement_rate}%`);
+    }
+  }
+  lines.push("");
+
+  lines.push(`## Page performance (GA4, last 90 days)`);
+  if (pages.length === 0) {
+    lines.push(
+      "No page-level data yet — Google Analytics 4 isn't connected for this client, so questions about specific " +
+        "pages, on-site drop-off, or bounce rate can't be answered yet. Site-wide traffic and conversion totals " +
+        "above still work fine without it."
+    );
+  } else {
+    const byPage = new Map<string, { sessions: number; pageViews: number; bounceWeighted: number; engagementWeighted: number }>();
+    for (const row of pages) {
+      const entry = byPage.get(row.page_path) ?? { sessions: 0, pageViews: 0, bounceWeighted: 0, engagementWeighted: 0 };
+      const sessions = row.sessions ?? 0;
+      entry.sessions += sessions;
+      entry.pageViews += row.page_views ?? 0;
+      entry.bounceWeighted += (row.bounce_rate ?? 0) * sessions;
+      entry.engagementWeighted += (row.avg_engagement_sec ?? 0) * sessions;
+      byPage.set(row.page_path, entry);
+    }
+    const aggregated = Array.from(byPage.entries()).map(([page_path, e]) => ({
+      page_path,
+      sessions: e.sessions,
+      pageViews: e.pageViews,
+      bounceRate: e.sessions > 0 ? Math.round((e.bounceWeighted / e.sessions) * 1000) / 10 : 0,
+      avgEngagementSec: e.sessions > 0 ? Math.round((e.engagementWeighted / e.sessions) * 10) / 10 : 0,
+    }));
+
+    const topBySessions = [...aggregated].sort((a, b) => b.sessions - a.sessions).slice(0, 15);
+    lines.push(`Top pages by sessions (${topBySessions.length} of ${aggregated.length} tracked pages):`);
+    lines.push("page | sessions | page_views | bounce_rate | avg_engagement_sec");
+    for (const p of topBySessions) {
+      lines.push(`${p.page_path} | ${p.sessions} | ${p.pageViews} | ${p.bounceRate}% | ${p.avgEngagementSec}s`);
+    }
+    lines.push("");
+
+    const dropOff = aggregated
+      .filter((p) => p.sessions >= 5)
+      .sort((a, b) => b.bounceRate - a.bounceRate)
+      .slice(0, 8);
+    lines.push(`Highest-bounce pages (likely drop-off points, min 5 sessions):`);
+    if (dropOff.length === 0) {
+      lines.push("Not enough per-page traffic yet to identify drop-off points.");
+    } else {
+      lines.push("page | sessions | bounce_rate | avg_engagement_sec");
+      for (const p of dropOff) {
+        lines.push(`${p.page_path} | ${p.sessions} | ${p.bounceRate}% | ${p.avgEngagementSec}s`);
+      }
     }
   }
 
@@ -202,6 +259,25 @@ export function buildDemoDataDigest(): string {
       lines.push(`${dates[i]} | ${p.platform} | ${followers[i]} | ${p.engagement}%`);
     }
   });
+  lines.push("");
+
+  // Fixed, plausible per-page stats — deliberately gives the cart page a
+  // much higher bounce rate than the rest, so "where are people dropping
+  // off" has a real, specific answer to point to in demo mode too.
+  lines.push(`## Page performance (GA4, last 30 days)`);
+  lines.push("page | sessions | page_views | bounce_rate | avg_engagement_sec");
+  const pageStats: { page: string; sessions: number; views: number; bounce: number; engagement: number }[] = [
+    { page: "/", sessions: 4820, views: 6100, bounce: 38, engagement: 42 },
+    { page: "/products/fl-41-glasses", sessions: 3140, views: 4400, bounce: 31, engagement: 68 },
+    { page: "/collections/all", sessions: 1960, views: 2500, bounce: 44, engagement: 35 },
+    { page: "/products/blackout-eye-mask", sessions: 1420, views: 1900, bounce: 34, engagement: 55 },
+    { page: "/blog/light-sensitivity-guide", sessions: 980, views: 1150, bounce: 52, engagement: 61 },
+    { page: "/cart", sessions: 640, views: 780, bounce: 71, engagement: 18 },
+    { page: "/pages/about", sessions: 410, views: 460, bounce: 58, engagement: 22 },
+  ];
+  for (const p of pageStats) {
+    lines.push(`${p.page} | ${p.sessions} | ${p.views} | ${p.bounce}% | ${p.engagement}s`);
+  }
 
   return lines.join("\n");
 }

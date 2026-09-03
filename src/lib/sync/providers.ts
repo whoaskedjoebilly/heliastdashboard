@@ -195,6 +195,61 @@ export async function syncMetaPageStats(integration: IntegrationRow, db: Supabas
   if (error) throw error;
 }
 
+/** GA4 page-level engagement for the last 7 days (dashboard_ga4_pages) —
+ * the assistant's only source for "where are people dropping off" /
+ * per-page performance questions, since dashboard_daily_traffic only has
+ * site-wide daily totals. external_account_id is the GA4 property ID in
+ * "properties/123456789" form. */
+export async function syncGa4(integration: IntegrationRow, db: SupabaseClient) {
+  if (!integration.external_account_id) throw new Error("ga4 integration missing external_account_id (GA4 property ID)");
+  const token = await refreshGoogleToken(integration);
+
+  const res = await fetch(
+    `https://analyticsdata.googleapis.com/v1beta/${integration.external_account_id}:runReport`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+        dimensions: [{ name: "date" }, { name: "pagePath" }],
+        metrics: [
+          { name: "sessions" },
+          { name: "engagedSessions" },
+          { name: "bounceRate" },
+          { name: "userEngagementDuration" },
+          { name: "screenPageViews" },
+        ],
+        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+        limit: 500,
+      }),
+    }
+  );
+  if (!res.ok) throw new Error(`GA4 runReport failed: ${await res.text()}`);
+  const { rows } = (await res.json()) as {
+    rows?: { dimensionValues: { value: string }[]; metricValues: { value: string }[] }[];
+  };
+
+  const upserts = (rows ?? []).map((r) => {
+    const [rawDate, pagePath] = r.dimensionValues.map((d) => d.value);
+    const [sessions, engagedSessions, bounceRate, engagementDuration, pageViews] = r.metricValues.map((m) => Number(m.value));
+    // GA4 returns date dimensions as "YYYYMMDD" — reshape to a Postgres date.
+    const date = `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`;
+    return {
+      client_id: integration.client_id,
+      date,
+      page_path: pagePath || "/",
+      sessions: Math.round(sessions || 0),
+      engaged_sessions: Math.round(engagedSessions || 0),
+      bounce_rate: Math.round((bounceRate || 0) * 1000) / 1000,
+      avg_engagement_sec: sessions > 0 ? Math.round((engagementDuration / sessions) * 10) / 10 : 0,
+      page_views: Math.round(pageViews || 0),
+    };
+  });
+  if (upserts.length === 0) return;
+  const { error } = await db.from("dashboard_ga4_pages").upsert(upserts, { onConflict: "client_id,date,page_path" });
+  if (error) throw error;
+}
+
 export async function syncTiktok(integration: IntegrationRow, db: SupabaseClient) {
   const token = await refreshTikTokToken(integration);
   const res = await fetch("https://open.tiktokapis.com/v2/user/info/?fields=follower_count,likes_count", {

@@ -19,6 +19,15 @@ Rules:
   campaigns, or keywords that aren't in it.
 - If the data needed to answer isn't present (e.g. a time range or metric
   with no rows), say so plainly instead of guessing.
+- For "where are people dropping off" / "what should we improve on the
+  site" questions, use the Page performance section — the highest-bounce
+  pages there ARE the drop-off points; don't just repeat site-wide totals.
+  If that section says GA4 isn't connected, say so and suggest connecting
+  it rather than guessing at page-level behavior from site-wide numbers.
+- For "why did X change" questions, look for a plausible correlated cause
+  in the other sections (e.g. a conversions dip alongside a paused/reduced
+  campaign, a keyword ranking drop, a channel mix shift) rather than only
+  reporting the delta.
 - Keep answers conversational and concise for quick questions; write
   longer, well-formatted markdown (headers, tables, bullets) when asked
   for something report-like ("write me a report on...", "summarize...").

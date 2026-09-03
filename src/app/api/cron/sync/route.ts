@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { isCronRequest } from "@/lib/admin-auth";
-import { syncGoogleAds, syncGsc, syncMetaAds, syncMetaPageStats, syncTiktok, type IntegrationRow } from "@/lib/sync/providers";
+import { syncGa4, syncGoogleAds, syncGsc, syncMetaAds, syncMetaPageStats, syncTiktok, type IntegrationRow } from "@/lib/sync/providers";
 
 // Daily sync job (dashboard-live-setup.md Phase 7) — configured to run via
 // vercel.json's cron schedule. Vercel calls this with
@@ -30,6 +30,9 @@ export async function GET(req: Request) {
       switch (integration.platform) {
         case "gsc":
           await syncGsc(integration, supabaseAdmin);
+          break;
+        case "ga4":
+          await syncGa4(integration, supabaseAdmin);
           break;
         case "gads":
           await syncGoogleAds(integration, supabaseAdmin);

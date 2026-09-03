@@ -30,7 +30,7 @@ export interface IntegrationStatus {
   connected_at: string | null;
 }
 
-const ALL_PLATFORMS = ["gsc", "gads", "meta_ads", "instagram", "tiktok", "facebook"] as const;
+const ALL_PLATFORMS = ["gsc", "ga4", "gads", "meta_ads", "instagram", "tiktok", "facebook"] as const;
 
 function formatDay(dateStr: string): string {
   // dateStr is a plain "YYYY-MM-DD" from Postgres `date` columns — parse it
