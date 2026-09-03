@@ -2,38 +2,48 @@
 
 import { useMemo, useState } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { Plus, Save, X } from "lucide-react";
+import { ArrowDownWideNarrow, ArrowUpWideNarrow, BarChart3, Check, LineChart as LineChartIcon, Plus, PieChart as PieChartIcon, Save, Table2, X } from "lucide-react";
 import { Panel } from "./ui/Panel";
+import { Dropdown } from "./ui/Dropdown";
+import { DateRangePicker } from "./DateRangePicker";
 import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "./chart-theme";
 import { useReportData } from "@/lib/reports/useReportData";
 import { DATASETS, defaultConfig, formatMetricValue, type ChartType, type Dataset, type FilterRule, type ReportConfig } from "@/lib/reports/registry";
-import type { RangeKey } from "@/lib/dashboard-data";
+import { DEFAULT_REPORT_RANGE } from "@/lib/reports/date-range";
 
 interface ReportBuilderProps {
   configured: boolean;
   clientId: string | null;
-  range: RangeKey;
   onSave?: (title: string, config: ReportConfig) => Promise<{ error: string | null }>;
   initialConfig?: ReportConfig;
 }
 
 const SERIES_COLORS = ["#3ef28c", "#4ea8ff", "#f2a93e", "#c084fc", "#f2634e"];
-const CHART_TYPES: { key: ChartType; label: string }[] = [
-  { key: "bar", label: "Bar" },
-  { key: "line", label: "Line" },
-  { key: "donut", label: "Donut" },
-  { key: "table", label: "Table" },
+
+/** Chart/table rows grouped by date carry a raw "YYYY-MM-DD" label (kept
+ * unambiguous for grouping/sorting) — reformat just for display so a
+ * 90-point axis shows "Aug 23" instead of a full ISO string. */
+function shortDateLabel(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+const CHART_TYPES: { key: ChartType; label: string; icon: typeof Table2 }[] = [
+  { key: "bar", label: "Bar chart", icon: BarChart3 },
+  { key: "line", label: "Line chart", icon: LineChartIcon },
+  { key: "donut", label: "Donut chart", icon: PieChartIcon },
+  { key: "table", label: "Table", icon: Table2 },
 ];
 
-export function ReportBuilder({ configured, clientId, range, onSave, initialConfig }: ReportBuilderProps) {
+export function ReportBuilder({ configured, clientId, onSave, initialConfig }: ReportBuilderProps) {
   const [config, setConfig] = useState<ReportConfig>(initialConfig ?? defaultConfig("traffic"));
-  const [saving, setSaving] = useState(false);
   const [saveTitle, setSaveTitle] = useState("");
+  const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   const def = DATASETS[config.dataset];
-  const { rows, loading, error } = useReportData(configured, clientId, config, range);
+  const range = config.range ?? DEFAULT_REPORT_RANGE;
+  const { rows, loading, error } = useReportData(configured, clientId, config);
 
   // Multiple metrics with different units (currency, %, seconds...) can't
   // share one chart axis meaningfully — fall back to the table view rather
@@ -41,10 +51,15 @@ export function ReportBuilder({ configured, clientId, range, onSave, initialConf
   const effectiveChartType: ChartType = config.metrics.length > 1 ? "table" : config.chartType;
   const primaryMetric = config.metrics[0];
   const primaryFormat = def.metrics.find((m) => m.key === primaryMetric)?.format ?? "number";
+  const activeChart = CHART_TYPES.find((c) => c.key === config.chartType) ?? CHART_TYPES[0];
 
-  const chartData = useMemo(() => rows.map((r) => ({ ...r })), [rows]);
+  const chartData = useMemo(
+    () => rows.map((r) => (config.dimension === "date" ? { ...r, label: shortDateLabel(String(r.label)) } : { ...r })),
+    [rows, config.dimension]
+  );
+  const xAxisInterval = Math.max(0, Math.ceil(chartData.length / 8) - 1);
 
-  const setDataset = (dataset: Dataset) => setConfig(defaultConfig(dataset));
+  const setDataset = (dataset: Dataset) => setConfig((c) => ({ ...defaultConfig(dataset, c.range), range: c.range }));
 
   const toggleMetric = (key: string) => {
     setConfig((c) => {
@@ -81,106 +96,201 @@ export function ReportBuilder({ configured, clientId, range, onSave, initialConf
   };
 
   const filterableFields = [...def.dimensions.map((d) => ({ key: d.key, label: d.label })), ...def.metrics.map((m) => ({ key: m.key, label: m.label }))];
+  const sortMetricLabel = def.metrics.find((m) => m.key === config.sortMetric)?.label ?? config.sortMetric;
 
   return (
-    <Panel title="Build a report" className="report-builder-panel">
+    <Panel
+      title="Build a report"
+      className="report-builder-panel"
+      action={
+        <div className="rb-header-actions">
+          <DateRangePicker value={range} onChange={(r) => setConfig((c) => ({ ...c, range: r }))} />
+          {onSave && (
+            <Dropdown
+              align="right"
+              hideCaret
+              className="rb-save-dd"
+              trigger={
+                <>
+                  <Save size={13} />
+                  <span>{saved ? "Saved" : "Save"}</span>
+                </>
+              }
+            >
+              {() => (
+                <div className="drp-menu rb-save-menu">
+                  <div className="dd-section-label">Save this report</div>
+                  <input
+                    className="rb-select rb-save-input"
+                    type="text"
+                    placeholder="Name this report…"
+                    value={saveTitle}
+                    onChange={(e) => setSaveTitle(e.target.value)}
+                    autoFocus
+                  />
+                  <button type="button" className="drp-apply" onClick={handleSave} disabled={!saveTitle.trim() || saving}>
+                    {saving ? "Saving…" : "Save report"}
+                  </button>
+                  {saveError && <span className="rb-save-error">{saveError}</span>}
+                </div>
+              )}
+            </Dropdown>
+          )}
+        </div>
+      }
+    >
       <div className="report-builder">
-        <div className="rb-section">
-          <div className="rb-label">Dataset</div>
-          <div className="rb-chip-row">
-            {(Object.keys(DATASETS) as Dataset[]).map((key) => (
-              <button
-                key={key}
-                type="button"
-                className={`rb-chip ${config.dataset === key ? "active" : ""}`}
-                onClick={() => setDataset(key)}
-              >
-                {DATASETS[key].label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="rb-grid">
-          <div className="rb-section">
-            <div className="rb-label">Metrics</div>
-            <div className="rb-chip-row">
-              {def.metrics.map((m) => (
-                <button
-                  key={m.key}
-                  type="button"
-                  className={`rb-chip ${config.metrics.includes(m.key) ? "active" : ""}`}
-                  onClick={() => toggleMetric(m.key)}
-                >
-                  {m.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="rb-section">
-            <div className="rb-label">Group by</div>
-            <div className="rb-chip-row">
-              {def.dimensions.map((d) => (
-                <button
-                  key={d.key}
-                  type="button"
-                  className={`rb-chip ${config.dimension === d.key ? "active" : ""}`}
-                  onClick={() => setConfig((c) => ({ ...c, dimension: d.key }))}
-                >
-                  {d.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="rb-section">
-            <div className="rb-label">Chart</div>
-            <div className="rb-chip-row">
-              {CHART_TYPES.map((c) => (
-                <button
-                  key={c.key}
-                  type="button"
-                  className={`rb-chip ${config.chartType === c.key ? "active" : ""}`}
-                  onClick={() => setConfig((prev) => ({ ...prev, chartType: c.key }))}
-                >
-                  {c.label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          <div className="rb-section">
-            <div className="rb-label">Sort &amp; limit</div>
-            <div className="rb-inline-controls">
-              <select className="rb-select" value={config.sortMetric} onChange={(e) => setConfig((c) => ({ ...c, sortMetric: e.target.value }))}>
-                {config.metrics.map((mKey) => (
-                  <option key={mKey} value={mKey}>
-                    {def.metrics.find((m) => m.key === mKey)?.label ?? mKey}
-                  </option>
+        <div className="rb-toolbar">
+          <Dropdown
+            trigger={<span className="dd-trigger-label">{def.label}</span>}
+          >
+            {(close) => (
+              <div className="dd-menu">
+                <div className="dd-section-label">Report on</div>
+                {(Object.keys(DATASETS) as Dataset[]).map((key) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className={`dd-item ${config.dataset === key ? "active" : ""}`}
+                    onClick={() => {
+                      setDataset(key);
+                      close();
+                    }}
+                  >
+                    <span>
+                      <span className="dd-item-title">{DATASETS[key].label}</span>
+                      <span className="dd-item-sub">{DATASETS[key].description}</span>
+                    </span>
+                    {config.dataset === key && <Check size={13} />}
+                  </button>
                 ))}
-              </select>
-              <button
-                type="button"
-                className="rb-chip"
-                onClick={() => setConfig((c) => ({ ...c, sortDir: c.sortDir === "desc" ? "asc" : "desc" }))}
-              >
-                {config.sortDir === "desc" ? "High → low" : "Low → high"}
-              </button>
-              <input
-                className="rb-select rb-limit"
-                type="number"
-                min={1}
-                max={50}
-                value={config.limit}
-                onChange={(e) => setConfig((c) => ({ ...c, limit: Math.max(1, Math.min(50, Number(e.target.value) || 1)) }))}
-              />
-            </div>
-          </div>
+              </div>
+            )}
+          </Dropdown>
+
+          <Dropdown trigger={<span className="dd-trigger-label">Columns: {config.metrics.length}</span>}>
+            {() => (
+              <div className="dd-menu">
+                <div className="dd-section-label">Metrics to show</div>
+                {def.metrics.map((m) => (
+                  <button key={m.key} type="button" className={`dd-item ${config.metrics.includes(m.key) ? "active" : ""}`} onClick={() => toggleMetric(m.key)}>
+                    {m.label}
+                    {config.metrics.includes(m.key) && <Check size={13} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Dropdown>
+
+          <Dropdown trigger={<span className="dd-trigger-label">Group by: {def.dimensions.find((d) => d.key === config.dimension)?.label}</span>}>
+            {(close) => (
+              <div className="dd-menu">
+                <div className="dd-section-label">Group by</div>
+                {def.dimensions.map((d) => (
+                  <button
+                    key={d.key}
+                    type="button"
+                    className={`dd-item ${config.dimension === d.key ? "active" : ""}`}
+                    onClick={() => {
+                      setConfig((c) => ({ ...c, dimension: d.key }));
+                      close();
+                    }}
+                  >
+                    {d.label}
+                    {config.dimension === d.key && <Check size={13} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Dropdown>
+
+          {config.dimension !== "date" && (
+            <Dropdown
+              trigger={
+                <span className="dd-trigger-label">
+                  Sort: {sortMetricLabel} · Top {config.limit}
+                </span>
+              }
+            >
+              {() => (
+                <div className="dd-menu">
+                  <div className="dd-section-label">Sort by</div>
+                  {config.metrics.map((mKey) => (
+                    <button
+                      key={mKey}
+                      type="button"
+                      className={`dd-item ${config.sortMetric === mKey ? "active" : ""}`}
+                      onClick={() => setConfig((c) => ({ ...c, sortMetric: mKey }))}
+                    >
+                      {def.metrics.find((m) => m.key === mKey)?.label ?? mKey}
+                      {config.sortMetric === mKey && <Check size={13} />}
+                    </button>
+                  ))}
+                  <div className="dd-divider" />
+                  <div className="dd-item-row">
+                    <button
+                      type="button"
+                      className={`dd-item ${config.sortDir === "desc" ? "active" : ""}`}
+                      onClick={() => setConfig((c) => ({ ...c, sortDir: "desc" }))}
+                    >
+                      <ArrowDownWideNarrow size={13} /> High → low
+                    </button>
+                    <button
+                      type="button"
+                      className={`dd-item ${config.sortDir === "asc" ? "active" : ""}`}
+                      onClick={() => setConfig((c) => ({ ...c, sortDir: "asc" }))}
+                    >
+                      <ArrowUpWideNarrow size={13} /> Low → high
+                    </button>
+                  </div>
+                  <div className="dd-divider" />
+                  <div className="dd-section-label">Rows to show</div>
+                  <input
+                    className="rb-select rb-limit"
+                    type="number"
+                    min={1}
+                    max={50}
+                    value={config.limit}
+                    onChange={(e) => setConfig((c) => ({ ...c, limit: Math.max(1, Math.min(50, Number(e.target.value) || 1)) }))}
+                  />
+                </div>
+              )}
+            </Dropdown>
+          )}
+
+          <Dropdown
+            trigger={
+              <span className="dd-trigger-label dd-trigger-icon">
+                <activeChart.icon size={13} /> {activeChart.label}
+              </span>
+            }
+          >
+            {(close) => (
+              <div className="dd-menu">
+                <div className="dd-section-label">Chart type</div>
+                {CHART_TYPES.map((c) => (
+                  <button
+                    key={c.key}
+                    type="button"
+                    className={`dd-item ${config.chartType === c.key ? "active" : ""}`}
+                    onClick={() => {
+                      setConfig((prev) => ({ ...prev, chartType: c.key }));
+                      close();
+                    }}
+                  >
+                    <span className="dd-item-icon-label">
+                      <c.icon size={13} /> {c.label}
+                    </span>
+                    {config.chartType === c.key && <Check size={13} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </Dropdown>
         </div>
 
-        <div className="rb-section">
-          <div className="rb-label">Filters</div>
+        <div className="rb-section rb-filters-section">
+          <div className="rb-label">Filters (optional)</div>
           <div className="rb-filters">
             {config.filters.map((f, idx) => (
               <div className="rb-filter-row" key={idx}>
@@ -268,7 +378,7 @@ export function ReportBuilder({ configured, clientId, range, onSave, initialConf
             <ResponsiveContainer width="100%" height={260}>
               <LineChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
-                <XAxis dataKey="label" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} />
+                <XAxis dataKey="label" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
                 <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={44} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}
@@ -282,7 +392,7 @@ export function ReportBuilder({ configured, clientId, range, onSave, initialConf
             <ResponsiveContainer width="100%" height={260}>
               <BarChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
-                <XAxis dataKey="label" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} />
+                <XAxis dataKey="label" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
                 <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={44} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}
@@ -294,22 +404,6 @@ export function ReportBuilder({ configured, clientId, range, onSave, initialConf
             </ResponsiveContainer>
           )}
         </div>
-
-        {onSave && (
-          <div className="rb-save-row">
-            <input
-              className="rb-select rb-save-input"
-              type="text"
-              placeholder="Name this report to save it…"
-              value={saveTitle}
-              onChange={(e) => setSaveTitle(e.target.value)}
-            />
-            <button type="button" className="rb-save-btn" onClick={handleSave} disabled={!saveTitle.trim() || saving}>
-              <Save size={13} /> {saved ? "Saved" : saving ? "Saving…" : "Save report"}
-            </button>
-            {saveError && <span className="rb-save-error">{saveError}</span>}
-          </div>
-        )}
       </div>
     </Panel>
   );

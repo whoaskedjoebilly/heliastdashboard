@@ -3,6 +3,11 @@
 // (mock-data.ts) so a custom report's numbers line up with what the
 // Overview/Ads/Social tabs already show, rather than a separate,
 // disconnected set of fake numbers.
+//
+// Every dataset here is looked up by calendar date rather than "last N
+// days", since the report builder lets someone pick an arbitrary custom
+// window (e.g. a specific two weeks last month) — not just a trailing
+// range from today.
 import {
   CAMPAIGNS,
   CHANNEL_SPLIT,
@@ -12,37 +17,54 @@ import {
   TRAFFIC_LONG,
   genTrend,
 } from "@/components/dashboard/mock-data";
+import type { TrendPoint } from "@/components/dashboard/types";
 import type { CampaignRawRow, PageRawRow, SocialRawRow, TrafficRawRow } from "./registry";
 
-function lastNDates(n: number): string[] {
+function datesInRange(startStr: string, endStr: string): string[] {
   const out: string[] = [];
-  const today = new Date();
-  for (let i = n - 1; i >= 0; i--) {
-    const d = new Date(today);
-    d.setDate(d.getDate() - i);
+  let d = parseDateStr(startStr);
+  const end = parseDateStr(endStr);
+  while (d <= end) {
     out.push(d.toISOString().slice(0, 10));
+    d = new Date(d);
+    d.setDate(d.getDate() + 1);
   }
   return out;
+}
+
+function parseDateStr(s: string): Date {
+  const [y, m, dd] = s.split("-").map(Number);
+  return new Date(y, m - 1, dd);
+}
+
+/** The demo LONG series (TRAFFIC_LONG etc.) are 180-day arrays anchored so
+ * the last entry is "today" — this maps an arbitrary calendar date back to
+ * that array's index, clamping to the nearest edge for dates outside the
+ * 180-day window (a demo-data limitation; real accounts have no such
+ * window since they just query whatever Supabase has stored). */
+function seriesValue(series: TrendPoint[], dateStr: string): number {
+  const target = parseDateStr(dateStr);
+  target.setHours(0, 0, 0, 0);
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const daysAgo = Math.round((today.getTime() - target.getTime()) / 86400000);
+  const idx = series.length - 1 - daysAgo;
+  return series[Math.min(series.length - 1, Math.max(0, idx))].value;
 }
 
 /** No real per-channel daily table exists in the demo data (CHANNEL_SPLIT is
  * a static 30-day percentage split) — split each day's total sessions
  * across channels by that same split so a channel-grouped report is at
  * least internally consistent with the Overview donut chart. */
-export function demoTrafficRows(days: number): TrafficRawRow[] {
-  const dates = lastNDates(days);
-  const sessions = TRAFFIC_LONG.slice(-days);
-  const conversions = CONVERSIONS_LONG.slice(-days);
+export function demoTrafficRows(startStr: string, endStr: string): TrafficRawRow[] {
+  const dates = datesInRange(startStr, endStr);
   const rows: TrafficRawRow[] = [];
-  for (let i = 0; i < days; i++) {
+  for (const date of dates) {
+    const sessions = seriesValue(TRAFFIC_LONG, date);
+    const conversions = seriesValue(CONVERSIONS_LONG, date);
     for (const c of CHANNEL_SPLIT) {
       const share = c.value / 100;
-      rows.push({
-        date: dates[i],
-        channel: c.channel,
-        sessions: Math.round(sessions[i].value * share),
-        conversions: Math.round(conversions[i].value * share),
-      });
+      rows.push({ date, channel: c.channel, sessions: Math.round(sessions * share), conversions: Math.round(conversions * share) });
     }
   }
   return rows;
@@ -52,13 +74,12 @@ export function demoCampaignRows(): CampaignRawRow[] {
   return CAMPAIGNS.map((c) => ({ name: c.name, platform: c.channel, status: c.status, spend: c.spend, roas: c.roas }));
 }
 
-export function demoSocialRows(days: number): SocialRawRow[] {
-  const dates = lastNDates(days);
+export function demoSocialRows(startStr: string, endStr: string): SocialRawRow[] {
+  const dates = datesInRange(startStr, endStr);
   const rows: SocialRawRow[] = [];
   for (const [platform, series] of Object.entries(PLATFORM_SERIES_LONG)) {
-    const slice = series.slice(-days);
-    for (let i = 0; i < days; i++) {
-      rows.push({ date: dates[i], platform, followers: slice[i].value, engagement_rate: PLATFORM_ENGAGEMENT[platform] ?? 0 });
+    for (const date of dates) {
+      rows.push({ date, platform, followers: seriesValue(series, date), engagement_rate: PLATFORM_ENGAGEMENT[platform] ?? 0 });
     }
   }
   return rows;
@@ -74,17 +95,24 @@ const DEMO_PAGES = [
   { path: "/pages/about", base: 14, drift: 0.02, noise: 5, bounce: 58, engagement: 22, viewsPerSession: 1.12 },
 ];
 
-export function demoPageRows(days: number): PageRawRow[] {
-  const dates = lastNDates(days);
+// Generated once (180-day, anchored to today like the LONG series above) so
+// every date maps to a stable value regardless of which window is queried.
+const PAGE_SESSIONS_LONG: Record<string, TrendPoint[]> = Object.fromEntries(
+  DEMO_PAGES.map((p) => [p.path, genTrend(180, p.base, p.drift, p.noise)])
+);
+
+export function demoPageRows(startStr: string, endStr: string): PageRawRow[] {
+  const dates = datesInRange(startStr, endStr);
   const rows: PageRawRow[] = [];
   for (const p of DEMO_PAGES) {
-    const sessions = genTrend(days, p.base, p.drift, p.noise);
-    for (let i = 0; i < days; i++) {
+    const series = PAGE_SESSIONS_LONG[p.path];
+    for (const date of dates) {
+      const sessions = seriesValue(series, date);
       rows.push({
-        date: dates[i],
+        date,
         page_path: p.path,
-        sessions: sessions[i].value,
-        page_views: Math.round(sessions[i].value * p.viewsPerSession),
+        sessions,
+        page_views: Math.round(sessions * p.viewsPerSession),
         bounce_rate: p.bounce,
         avg_engagement_sec: p.engagement,
       });

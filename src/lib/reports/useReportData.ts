@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
-import { computeRangeBounds, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import {
   aggregateCampaigns,
   aggregatePages,
@@ -15,6 +14,7 @@ import {
   type SocialRawRow,
   type TrafficRawRow,
 } from "./registry";
+import { DEFAULT_REPORT_RANGE, type ReportRange } from "./date-range";
 import { demoCampaignRows, demoPageRows, demoSocialRows, demoTrafficRows } from "./demo-data";
 
 interface RawByDataset {
@@ -27,23 +27,24 @@ const EMPTY_RAW: RawByDataset = { traffic: [], campaigns: [], social: [], pages:
 
 /** Runs a ReportConfig against either the demo dataset or a real account's
  * Supabase tables and returns the aggregated rows — a report is a live
- * query, not a stored result, so this re-runs whenever the config or range
- * changes. Both paths funnel through the same aggregate*() functions
- * (registry.ts) so their behavior can't drift apart. The demo path is pure
- * synchronous computation (useMemo, no effect needed); only the real
- * Supabase fetch needs an effect. */
-export function useReportData(configured: boolean, clientId: string | null, config: ReportConfig, range: RangeKey) {
-  const days = RANGE_CONFIG[range].length;
+ * query, not a stored result, so this re-runs whenever the config or its
+ * date range changes. Both paths funnel through the same aggregate*()
+ * functions (registry.ts) so their behavior can't drift apart. The demo
+ * path is pure synchronous computation (useMemo, no effect needed); only
+ * the real Supabase fetch needs an effect. */
+export function useReportData(configured: boolean, clientId: string | null, config: ReportConfig) {
+  const range: ReportRange = config.range ?? DEFAULT_REPORT_RANGE;
+  const { startStr, endStr } = range;
 
   const demoRaw = useMemo<RawByDataset>(() => {
     if (configured) return EMPTY_RAW;
     return {
-      traffic: demoTrafficRows(days),
+      traffic: demoTrafficRows(startStr, endStr),
       campaigns: demoCampaignRows(),
-      social: demoSocialRows(days),
-      pages: demoPageRows(days),
+      social: demoSocialRows(startStr, endStr),
+      pages: demoPageRows(startStr, endStr),
     };
-  }, [configured, days]);
+  }, [configured, startStr, endStr]);
 
   const [realRaw, setRealRaw] = useState<RawByDataset>(EMPTY_RAW);
   const [loading, setLoading] = useState(false);
@@ -56,7 +57,6 @@ export function useReportData(configured: boolean, clientId: string | null, conf
     (async () => {
       setLoading(true);
       setError(null);
-      const { currentStartStr, currentEndStr } = computeRangeBounds(range);
 
       try {
         switch (config.dataset) {
@@ -65,8 +65,8 @@ export function useReportData(configured: boolean, clientId: string | null, conf
               .from("dashboard_daily_traffic")
               .select("date, channel, sessions, conversions")
               .eq("client_id", clientId)
-              .gte("date", currentStartStr)
-              .lte("date", currentEndStr);
+              .gte("date", startStr)
+              .lte("date", endStr);
             if (err) throw err;
             if (!cancelled) {
               setRealRaw((prev) => ({
@@ -95,8 +95,8 @@ export function useReportData(configured: boolean, clientId: string | null, conf
               .from("dashboard_social_stats")
               .select("date, platform, followers, engagement_rate")
               .eq("client_id", clientId)
-              .gte("date", currentStartStr)
-              .lte("date", currentEndStr);
+              .gte("date", startStr)
+              .lte("date", endStr);
             if (err) throw err;
             if (!cancelled) {
               setRealRaw((prev) => ({
@@ -111,8 +111,8 @@ export function useReportData(configured: boolean, clientId: string | null, conf
               .from("dashboard_ga4_pages")
               .select("date, page_path, sessions, page_views, bounce_rate, avg_engagement_sec")
               .eq("client_id", clientId)
-              .gte("date", currentStartStr)
-              .lte("date", currentEndStr);
+              .gte("date", startStr)
+              .lte("date", endStr);
             if (err) throw err;
             if (!cancelled) {
               setRealRaw((prev) => ({
@@ -143,7 +143,7 @@ export function useReportData(configured: boolean, clientId: string | null, conf
     // config.dataset (not the whole config) is the only piece that should
     // trigger a refetch — metrics/dimension/filters/sort only affect the
     // client-side aggregation below, not which raw rows to fetch.
-  }, [configured, clientId, config.dataset, range]);
+  }, [configured, clientId, config.dataset, startStr, endStr]);
 
   const raw = configured ? realRaw : demoRaw;
 

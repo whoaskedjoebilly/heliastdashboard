@@ -32,11 +32,11 @@ const NAV = [
 
 type TabId = (typeof NAV)[number]["id"];
 
-// Live (real-time feed) and Settings have no time-windowed metrics, so the
-// range toggle is hidden there instead of sitting next to controls it
-// doesn't affect. Analytics' report builder is range-aware (its live
-// preview queries the selected window), so it keeps the toggle.
-const RANGE_AWARE_TABS = new Set<TabId>(["overview", "seo", "ads", "social", "analytics"]);
+// Live (real-time feed), Analytics, and Settings have no use for the global
+// range toggle: Live has no time-windowed metrics, and Analytics' report
+// builder has its own dedicated date-range picker (including custom
+// start/end dates) that's independent of the rest of the dashboard.
+const RANGE_AWARE_TABS = new Set<TabId>(["overview", "seo", "ads", "social"]);
 
 export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
   const [tab, setTab] = useState<TabId>("overview");
@@ -78,7 +78,6 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
         <AnalyticsTab
           configured={configured}
           clientId={clientId}
-          range={range}
           reports={reports}
           reportsLoading={reportsLoading}
           deleteReport={deleteReport}

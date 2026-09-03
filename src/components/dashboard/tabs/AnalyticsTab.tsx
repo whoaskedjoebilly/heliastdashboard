@@ -7,12 +7,11 @@ import remarkGfm from "remark-gfm";
 import { Panel } from "../ui/Panel";
 import { ReportBuilder } from "../ReportBuilder";
 import { DATASETS, type ReportConfig } from "@/lib/reports/registry";
-import type { CustomReport, RangeKey, SavedReport } from "@/lib/dashboard-data";
+import type { CustomReport, SavedReport } from "@/lib/dashboard-data";
 
 interface AnalyticsTabProps {
   configured: boolean;
   clientId: string | null;
-  range: RangeKey;
   reports: SavedReport[];
   reportsLoading: boolean;
   deleteReport: (id: string) => Promise<void>;
@@ -25,7 +24,6 @@ interface AnalyticsTabProps {
 export function AnalyticsTab({
   configured,
   clientId,
-  range,
   reports,
   reportsLoading,
   deleteReport,
@@ -46,7 +44,6 @@ export function AnalyticsTab({
         key={loadedReportId ?? "new"}
         configured={configured}
         clientId={clientId}
-        range={range}
         onSave={configured ? saveCustomReport : undefined}
         initialConfig={loadedReport?.config}
       />

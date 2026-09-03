@@ -5,6 +5,8 @@
 // both the demo dataset (synthetic rows) and a real account's Supabase
 // rows, so the two paths can never drift in behavior.
 
+import { DEFAULT_REPORT_RANGE, type ReportRange } from "./date-range";
+
 export type Dataset = "traffic" | "campaigns" | "social" | "pages";
 export type ChartType = "line" | "bar" | "table" | "donut";
 export type MetricFormat = "number" | "currency" | "percent" | "seconds" | "ratio";
@@ -101,6 +103,9 @@ export interface ReportConfig {
   sortMetric: string;
   sortDir: "desc" | "asc";
   limit: number;
+  /** Optional so older saved reports (from before the date-range picker
+   * existed) still load — callers should fall back to DEFAULT_REPORT_RANGE. */
+  range?: ReportRange;
 }
 
 export interface ReportRow {
@@ -108,7 +113,7 @@ export interface ReportRow {
   [metricKey: string]: string | number;
 }
 
-export function defaultConfig(dataset: Dataset): ReportConfig {
+export function defaultConfig(dataset: Dataset, range: ReportRange = DEFAULT_REPORT_RANGE): ReportConfig {
   const def = DATASETS[dataset];
   return {
     dataset,
@@ -119,6 +124,7 @@ export function defaultConfig(dataset: Dataset): ReportConfig {
     sortMetric: def.metrics[0].key,
     sortDir: "desc",
     limit: 15,
+    range,
   };
 }
 
@@ -203,6 +209,13 @@ function applyFilters<T extends object>(rows: T[], filters: FilterRule[]): T[] {
 }
 
 function sortAndLimit(rows: ReportRow[], config: ReportConfig): ReportRow[] {
+  // A report grouped by date is a time series — always show it chronological
+  // and in full. Sorting it by a metric's value (the default for every other
+  // dimension) would turn a trend line into a scrambled zigzag, and the row
+  // limit would arbitrarily cut days out of the middle of the window.
+  if (config.dimension === "date") {
+    return [...rows].sort((a, b) => String(a.label).localeCompare(String(b.label)));
+  }
   const sorted = [...rows].sort((a, b) => {
     const av = Number(a[config.sortMetric] ?? 0);
     const bv = Number(b[config.sortMetric] ?? 0);
