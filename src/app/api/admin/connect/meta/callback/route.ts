@@ -11,6 +11,8 @@ export async function GET(req: Request) {
   const state = decodeOAuthState(url.searchParams.get("state"));
   const clientId = state?.clientId ?? null;
   const accountId = state?.accountId ?? null;
+  const igAccountId = state?.igAccountId ?? null;
+  const pageId = state?.pageId ?? null;
   const oauthError = url.searchParams.get("error");
 
   if (oauthError) {
@@ -54,17 +56,27 @@ export async function GET(req: Request) {
     return new Response(`Failed to get long-lived token: ${await longLivedRes.text()}`, { status: 502 });
   }
   const { access_token, expires_in } = (await longLivedRes.json()) as { access_token: string; expires_in: number };
+  const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
+  const connectedAt = new Date().toISOString();
+
+  // One Meta token covers ads, Instagram, and the Facebook Page — write an
+  // integration row per platform that was actually supplied so the sync
+  // job's per-platform pulls (syncMetaAds / syncMetaPageStats) each have
+  // something to run against, instead of only "meta_ads" existing.
+  const rows = [{ platform: "meta_ads", externalAccountId: accountId }];
+  if (igAccountId) rows.push({ platform: "instagram", externalAccountId: igAccountId });
+  if (pageId) rows.push({ platform: "facebook", externalAccountId: pageId });
 
   const { error } = await supabaseAdmin.from("dashboard_client_integrations").upsert(
-    {
+    rows.map((r) => ({
       client_id: clientId,
-      platform: "meta_ads",
+      platform: r.platform,
       access_token,
       refresh_token: null,
-      expires_at: new Date(Date.now() + expires_in * 1000).toISOString(),
-      connected_at: new Date().toISOString(),
-      external_account_id: accountId,
-    },
+      expires_at: expiresAt,
+      connected_at: connectedAt,
+      external_account_id: r.externalAccountId,
+    })),
     { onConflict: "client_id,platform" }
   );
 
@@ -72,5 +84,5 @@ export async function GET(req: Request) {
     return new Response(`Failed to store integration: ${error.message}`, { status: 500 });
   }
 
-  return Response.redirect(`${url.origin}/admin?connected=meta`);
+  return Response.redirect(`${url.origin}/?connected=meta`);
 }

@@ -69,5 +69,5 @@ export async function GET(req: Request) {
     return new Response(`Failed to store integration: ${error.message}`, { status: 500 });
   }
 
-  return Response.redirect(`${url.origin}/admin?connected=gsc`);
+  return Response.redirect(`${url.origin}/?connected=gsc`);
 }

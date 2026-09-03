@@ -168,9 +168,8 @@ export async function syncMetaAds(integration: IntegrationRow, db: SupabaseClien
 /** Instagram/Facebook page-level follower stats. Needs its own
  * dashboard_client_integrations row (platform "instagram" or "facebook")
  * with external_account_id set to the IG business account / Page ID — the
- * current connect flow only auto-creates a "meta_ads" row, so these rows
- * have to be added manually (same access_token as the meta_ads row) until
- * a dedicated connect step is built. */
+ * meta connect flow creates these automatically (same access_token as the
+ * meta_ads row) when ig_account_id / page_id are passed to it. */
 export async function syncMetaPageStats(integration: IntegrationRow, db: SupabaseClient) {
   if (!integration.external_account_id) throw new Error(`${integration.platform} integration missing external_account_id`);
   const isInstagram = integration.platform === "instagram";

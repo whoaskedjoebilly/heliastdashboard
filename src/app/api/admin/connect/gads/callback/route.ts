@@ -1,8 +1,8 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { decodeOAuthState } from "@/lib/oauth-state";
 
-// Step 2 of Google Analytics 4 OAuth — Google redirects here with a code
-// after the admin approves consent in the ga4/route.ts redirect above.
+// Step 2 of Google Ads OAuth — Google redirects here with a code after the
+// admin approves consent in the gads/route.ts redirect above.
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const code = url.searchParams.get("code");
@@ -17,11 +17,6 @@ export async function GET(req: Request) {
   if (!code || !clientId) {
     return new Response("Missing code or state (client_id) in callback", { status: 400 });
   }
-  if (!accountId) {
-    return new Response("Missing account_id (GA4 property ID) — pass it as ?account_id=properties/123456789 on the connect link", {
-      status: 400,
-    });
-  }
   if (!supabaseAdmin) {
     return new Response("SUPABASE_SERVICE_ROLE_KEY is not configured", { status: 500 });
   }
@@ -32,7 +27,7 @@ export async function GET(req: Request) {
     return new Response("GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET are not configured", { status: 500 });
   }
 
-  const redirectUri = `${url.origin}/api/admin/connect/ga4/callback`;
+  const redirectUri = `${url.origin}/api/admin/connect/gads/callback`;
 
   const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
     method: "POST",
@@ -60,7 +55,7 @@ export async function GET(req: Request) {
   const { error } = await supabaseAdmin.from("dashboard_client_integrations").upsert(
     {
       client_id: clientId,
-      platform: "ga4",
+      platform: "gads",
       access_token,
       refresh_token: refresh_token ?? null,
       expires_at: new Date(Date.now() + expires_in * 1000).toISOString(),
@@ -74,5 +69,5 @@ export async function GET(req: Request) {
     return new Response(`Failed to store integration: ${error.message}`, { status: 500 });
   }
 
-  return Response.redirect(`${url.origin}/?connected=ga4`);
+  return Response.redirect(`${url.origin}/?connected=gads`);
 }

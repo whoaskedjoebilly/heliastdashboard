@@ -67,5 +67,5 @@ export async function GET(req: Request) {
     return new Response(`Failed to store integration: ${error.message}`, { status: 500 });
   }
 
-  return Response.redirect(`${url.origin}/admin?connected=tiktok`);
+  return Response.redirect(`${url.origin}/?connected=tiktok`);
 }
