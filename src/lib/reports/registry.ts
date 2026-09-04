@@ -7,6 +7,7 @@
 
 import { DEFAULT_REPORT_RANGE, type ReportRange } from "./date-range";
 import { humanizePagePath } from "@/lib/page-labels";
+import { humanizeChannel } from "@/lib/channel-labels";
 
 export type Dataset = "traffic" | "campaigns" | "social" | "pages";
 export type ChartType = "line" | "bar" | "table" | "donut";
@@ -103,10 +104,108 @@ export const SPLITTABLE_DIMENSIONS: Partial<Record<Dataset, string[]>> = {
   pages: ["page_path"],
 };
 
+export type FilterOp = "eq" | "ne" | "contains" | "gt" | "gte" | "lt" | "lte";
+
 export interface FilterRule {
   field: string;
-  op: "eq" | "gt" | "gte" | "lt" | "lte";
+  op: FilterOp;
   value: string;
+}
+
+export type FilterFieldKind = "categorical" | "text" | "number";
+
+export interface FilterFieldDef {
+  key: string;
+  label: string;
+  kind: FilterFieldKind;
+  /** Known values for a categorical field, so the filter renders as a
+   * dropdown of real options instead of a free-text box the person has to
+   * guess the exact underlying value for. */
+  options?: { value: string; label: string }[];
+}
+
+/** Filterable fields per dataset — deliberately separate from
+ * DatasetDef.dimensions/metrics because not every dimension makes sense to
+ * filter on (e.g. "date": the report's date-range picker already scopes
+ * that) and because a filter needs to know its value type to render the
+ * right control (a dropdown of real values for an enum-like field, a number
+ * input with a comparison operator for a metric, free text for a name). */
+export const FILTER_FIELDS: Record<Dataset, FilterFieldDef[]> = {
+  traffic: [
+    {
+      key: "channel",
+      label: "Channel",
+      kind: "categorical",
+      options: [
+        { value: "organic", label: "Organic" },
+        { value: "paid_social", label: "Paid Social" },
+        { value: "paid_search", label: "Paid Search" },
+        { value: "direct", label: "Direct" },
+      ],
+    },
+    { key: "sessions", label: "Sessions", kind: "number" },
+    { key: "conversions", label: "Conversions", kind: "number" },
+  ],
+  campaigns: [
+    { key: "name", label: "Campaign", kind: "text" },
+    {
+      key: "platform",
+      label: "Platform",
+      kind: "categorical",
+      options: [
+        { value: "google_ads", label: "Google Ads" },
+        { value: "meta_ads", label: "Meta Ads" },
+      ],
+    },
+    {
+      key: "status",
+      label: "Status",
+      kind: "categorical",
+      options: [
+        { value: "healthy", label: "Healthy" },
+        { value: "watch", label: "Needs attention" },
+      ],
+    },
+    { key: "spend", label: "Spend", kind: "number" },
+    { key: "roas", label: "ROAS", kind: "number" },
+  ],
+  social: [
+    {
+      key: "platform",
+      label: "Platform",
+      kind: "categorical",
+      options: [
+        { value: "instagram", label: "Instagram" },
+        { value: "tiktok", label: "TikTok" },
+        { value: "facebook", label: "Facebook" },
+      ],
+    },
+    { key: "followers", label: "Followers", kind: "number" },
+    { key: "engagement_rate", label: "Engagement rate", kind: "number" },
+  ],
+  pages: [
+    { key: "page_path", label: "Page", kind: "text" },
+    { key: "sessions", label: "Sessions", kind: "number" },
+    { key: "page_views", label: "Page views", kind: "number" },
+    { key: "bounce_rate", label: "Bounce rate", kind: "number" },
+    { key: "engagement_rate", label: "Engagement rate", kind: "number" },
+    { key: "avg_engagement_sec", label: "Avg. engagement", kind: "number" },
+  ],
+};
+
+/** A sensible starting value for a freshly added filter, keyed by field
+ * kind — categorical defaults to its first real option (so the filter is
+ * immediately meaningful), number defaults to 0, text starts blank. */
+export function defaultFilterValue(field: FilterFieldDef): string {
+  if (field.kind === "categorical") return field.options?.[0]?.value ?? "";
+  if (field.kind === "number") return "0";
+  return "";
+}
+
+export function defaultFilterOp(kind: FilterFieldKind): FilterOp {
+  if (kind === "text") return "contains";
+  if (kind === "number") return "gte";
+  return "eq";
 }
 
 export interface ReportConfig {
@@ -204,6 +303,10 @@ export interface PageRawRow {
 function applyFilters<T extends object>(rows: T[], filters: FilterRule[]): T[] {
   return rows.filter((row) =>
     filters.every((f) => {
+      // A filter with no value yet (e.g. a text filter someone just added
+      // and hasn't typed into) shouldn't hide every row — treat it as
+      // inactive until it has something to match against.
+      if (f.value === "") return true;
       const raw = (row as Record<string, unknown>)[f.field];
       if (raw === undefined) return true;
       if (typeof raw === "number") {
@@ -212,6 +315,8 @@ function applyFilters<T extends object>(rows: T[], filters: FilterRule[]): T[] {
         switch (f.op) {
           case "eq":
             return raw === target;
+          case "ne":
+            return raw !== target;
           case "gt":
             return raw > target;
           case "gte":
@@ -220,11 +325,20 @@ function applyFilters<T extends object>(rows: T[], filters: FilterRule[]): T[] {
             return raw < target;
           case "lte":
             return raw <= target;
+          default:
+            return true;
         }
       }
       const rawStr = String(raw).toLowerCase();
       const targetStr = f.value.toLowerCase();
-      return f.op === "eq" ? rawStr === targetStr : rawStr.includes(targetStr);
+      switch (f.op) {
+        case "eq":
+          return rawStr === targetStr;
+        case "ne":
+          return rawStr !== targetStr;
+        default:
+          return rawStr.includes(targetStr);
+      }
     })
   );
 }
@@ -396,7 +510,7 @@ export function aggregateTrafficSplit(rows: TrafficRawRow[], config: ReportConfi
     rows,
     config.filters,
     (r) => r.date,
-    (r) => r.channel,
+    (r) => humanizeChannel(r.channel),
     (r) => (metric === "conversions" ? r.conversions : r.sessions)
   );
 }

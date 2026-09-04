@@ -10,6 +10,7 @@ import { DonutChannelChart } from "../ui/DonutChannelChart";
 import { AD_SPEND_LONG, CAMPAIGNS, CHANNEL_SPLIT, CONVERSIONS_LONG, KEYWORDS, ROAS_LONG, TRAFFIC_LONG, windowAverage, windowMetrics } from "../mock-data";
 import { chartAxisLine, chartAxisTick, chartCompactTick, chartTooltipLabelStyle, chartTooltipStyle, chartValueDomain } from "../chart-theme";
 import { useOverviewData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
+import { humanizeChannel } from "@/lib/channel-labels";
 import type { TabDataProps } from "../types";
 
 interface OverviewTabProps extends TabDataProps {
@@ -63,7 +64,7 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
 
   const traffic = configured ? data.traffic : mockSessions.trend;
   const conversionsTrend = configured ? data.conversionsTrend : mockConversions.trend;
-  const channelSplit = configured ? data.channelSplit : CHANNEL_SPLIT;
+  const channelSplit = (configured ? data.channelSplit : CHANNEL_SPLIT).map((c) => ({ ...c, channel: humanizeChannel(c.channel) }));
   const keywords = configured ? data.topKeywords : KEYWORDS;
   const campaigns = configured ? data.campaigns : CAMPAIGNS;
   const isLoading = configured && (clientLoading || loading);

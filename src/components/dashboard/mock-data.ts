@@ -140,11 +140,15 @@ export function windowAverage(long: TrendPoint[], config: RangeConfigLike): Rang
   return { trend, total, deltaPct };
 }
 
+// Raw channel keys — matches the dashboard_daily_traffic.channel enum
+// ('organic' | 'paid_social' | 'paid_search' | 'direct') so demo reports
+// filter/group/split the same way a real account's data does. Humanized
+// for display via humanizeChannel() at render time, not baked in here.
 export const CHANNEL_SPLIT: ChannelSplit[] = [
-  { channel: "Organic search", value: 44 },
-  { channel: "Paid social", value: 27 },
-  { channel: "Paid search", value: 18 },
-  { channel: "Direct", value: 11 },
+  { channel: "organic", value: 44 },
+  { channel: "paid_social", value: 27 },
+  { channel: "paid_search", value: 18 },
+  { channel: "direct", value: 11 },
 ];
 
 export const KEYWORDS: KeywordRow[] = [

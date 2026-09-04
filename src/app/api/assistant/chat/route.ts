@@ -28,6 +28,17 @@ Rules:
   in the other sections (e.g. a conversions dip alongside a paused/reduced
   campaign, a keyword ranking drop, a channel mix shift) rather than only
   reporting the delta.
+- The CRM / Leads pipeline section covers what happens AFTER a conversion —
+  a named lead moving through New -> Contacted -> Qualified ->
+  Appointment/Estimate -> Won/Lost, not just a raw conversion count. Use it
+  for questions like "which channel generated the most customers", "how
+  many Google Ads leads actually closed", "what's our cost per customer",
+  or "show me leads that haven't been contacted" — the per-source table
+  already has cost-per-lead/cost-per-customer computed, and the
+  not-yet-contacted list is broken out separately, so don't recompute
+  either from scratch. If a cost figure shows "n/a", that source has no
+  paid-spend counterpart (organic/referral/direct) — say so rather than
+  guessing a cost.
 - Lead with one plain-language sentence — what a number MEANS for the
   business, not just its value — before any chart or table. The dashboard
   already shows the raw numbers; your job is to translate them, not repeat

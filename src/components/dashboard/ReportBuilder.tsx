@@ -24,15 +24,21 @@ import { useReportData } from "@/lib/reports/useReportData";
 import {
   DATASETS,
   defaultConfig,
+  defaultFilterOp,
+  defaultFilterValue,
+  FILTER_FIELDS,
   formatMetricValue,
   SPLITTABLE_DIMENSIONS,
   type ChartType,
   type Dataset,
+  type FilterFieldDef,
+  type FilterOp,
   type FilterRule,
   type ReportConfig,
 } from "@/lib/reports/registry";
 import { DEFAULT_REPORT_RANGE } from "@/lib/reports/date-range";
 import { humanizePagePath } from "@/lib/page-labels";
+import { humanizeChannel } from "@/lib/channel-labels";
 
 interface ReportBuilderProps {
   configured: boolean;
@@ -58,6 +64,7 @@ function shortDateLabel(dateStr: string): string {
 function displayLabel(rawLabel: string, dataset: Dataset, dimension: string): string {
   if (dimension === "date") return shortDateLabel(rawLabel);
   if (dataset === "pages" && dimension === "page_path") return humanizePagePath(rawLabel);
+  if (dataset === "traffic" && dimension === "channel") return humanizeChannel(rawLabel);
   return rawLabel;
 }
 function csvCell(value: string | number): string {
@@ -147,8 +154,15 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
     downloadCsv(header, dataRows, `${config.dataset}-report.csv`);
   };
 
-  const addFilter = () => {
-    setConfig((c) => ({ ...c, filters: [...c.filters, { field: def.dimensions[0].key, op: "eq", value: "" }] }));
+  const filterFields = FILTER_FIELDS[config.dataset];
+  const usedFilterFields = new Set(config.filters.map((f) => f.field));
+  const availableFilterFields = filterFields.filter((f) => !usedFilterFields.has(f.key));
+
+  const addFilter = (field: FilterFieldDef) => {
+    setConfig((c) => ({
+      ...c,
+      filters: [...c.filters, { field: field.key, op: defaultFilterOp(field.kind), value: defaultFilterValue(field) }],
+    }));
   };
   const updateFilter = (idx: number, patch: Partial<FilterRule>) => {
     setConfig((c) => ({ ...c, filters: c.filters.map((f, i) => (i === idx ? { ...f, ...patch } : f)) }));
@@ -172,7 +186,6 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
     }
   };
 
-  const filterableFields = [...def.dimensions.map((d) => ({ key: d.key, label: d.label })), ...def.metrics.map((m) => ({ key: m.key, label: m.label }))];
   const sortMetricLabel = def.metrics.find((m) => m.key === config.sortMetric)?.label ?? config.sortMetric;
 
   return (
@@ -412,39 +425,89 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
         </div>
 
         <div className="rb-section rb-filters-section">
-          <div className="rb-label">Filters (optional)</div>
+          <div className="rb-label">Filters</div>
           <div className="rb-filters">
-            {config.filters.map((f, idx) => (
-              <div className="rb-filter-row" key={idx}>
-                <select className="rb-select" value={f.field} onChange={(e) => updateFilter(idx, { field: e.target.value })}>
-                  {filterableFields.map((field) => (
-                    <option key={field.key} value={field.key}>
-                      {field.label}
-                    </option>
-                  ))}
-                </select>
-                <select className="rb-select" value={f.op} onChange={(e) => updateFilter(idx, { op: e.target.value as FilterRule["op"] })}>
-                  <option value="eq">is</option>
-                  <option value="gt">&gt;</option>
-                  <option value="gte">&ge;</option>
-                  <option value="lt">&lt;</option>
-                  <option value="lte">&le;</option>
-                </select>
-                <input
-                  className="rb-select"
-                  type="text"
-                  placeholder="value"
-                  value={f.value}
-                  onChange={(e) => updateFilter(idx, { value: e.target.value })}
-                />
-                <button type="button" className="rb-icon-btn" onClick={() => removeFilter(idx)} aria-label="Remove filter">
-                  <X size={13} />
-                </button>
-              </div>
-            ))}
-            <button type="button" className="rb-add-filter" onClick={addFilter}>
-              <Plus size={13} /> Add filter
-            </button>
+            {config.filters.map((f, idx) => {
+              const fieldDef = filterFields.find((ff) => ff.key === f.field);
+              if (!fieldDef) return null;
+              return (
+                <div className="rb-filter-chip" key={f.field}>
+                  <span className="rb-filter-field">{fieldDef.label}</span>
+                  {fieldDef.kind === "categorical" ? (
+                    <>
+                      <select className="rb-select" value={f.op} onChange={(e) => updateFilter(idx, { op: e.target.value as FilterOp })}>
+                        <option value="eq">is</option>
+                        <option value="ne">is not</option>
+                      </select>
+                      <select className="rb-select" value={f.value} onChange={(e) => updateFilter(idx, { value: e.target.value })}>
+                        {fieldDef.options?.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    </>
+                  ) : fieldDef.kind === "number" ? (
+                    <>
+                      <select className="rb-select" value={f.op} onChange={(e) => updateFilter(idx, { op: e.target.value as FilterOp })}>
+                        <option value="gte">&ge;</option>
+                        <option value="gt">&gt;</option>
+                        <option value="lte">&le;</option>
+                        <option value="lt">&lt;</option>
+                        <option value="eq">=</option>
+                        <option value="ne">&ne;</option>
+                      </select>
+                      <input
+                        className="rb-select rb-filter-value"
+                        type="number"
+                        value={f.value}
+                        onChange={(e) => updateFilter(idx, { value: e.target.value })}
+                      />
+                    </>
+                  ) : (
+                    <>
+                      <select className="rb-select" value={f.op} onChange={(e) => updateFilter(idx, { op: e.target.value as FilterOp })}>
+                        <option value="contains">contains</option>
+                        <option value="eq">is exactly</option>
+                        <option value="ne">is not</option>
+                      </select>
+                      <input
+                        className="rb-select rb-filter-value"
+                        type="text"
+                        placeholder="value"
+                        value={f.value}
+                        onChange={(e) => updateFilter(idx, { value: e.target.value })}
+                      />
+                    </>
+                  )}
+                  <button type="button" className="rb-icon-btn" onClick={() => removeFilter(idx)} aria-label={`Remove ${fieldDef.label} filter`}>
+                    <X size={13} />
+                  </button>
+                </div>
+              );
+            })}
+            {availableFilterFields.length > 0 && (
+              <Dropdown hideCaret className="rb-add-filter-dd" trigger={<><Plus size={13} /> Add filter</>}>
+                {(close) => (
+                  <div className="dd-menu">
+                    <div className="dd-section-label">Filter by</div>
+                    {availableFilterFields.map((field) => (
+                      <button
+                        key={field.key}
+                        type="button"
+                        className="dd-item"
+                        onClick={() => {
+                          addFilter(field);
+                          close();
+                        }}
+                      >
+                        {field.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </Dropdown>
+            )}
           </div>
         </div>
 

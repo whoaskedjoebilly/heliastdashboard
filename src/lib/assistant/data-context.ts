@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BUSINESS, CAMPAIGNS, KEYWORDS, SOCIAL_PLATFORMS } from "@/components/dashboard/mock-data";
 import { humanizePagePath } from "@/lib/page-labels";
+import { buildLeadsDigestSection } from "@/lib/leads/digest";
+import { demoLeads, demoSpendBySource } from "@/lib/leads/demo-data";
+import type { Lead, LeadSource } from "@/lib/leads/types";
 
 /** Fetches everything about one client from the dashboard_* tables and
  * serializes it into a compact text digest for a Claude prompt. Always
@@ -11,7 +14,7 @@ export async function buildClientDataDigest(db: SupabaseClient, clientId: string
   since90.setDate(since90.getDate() - 90);
   const since90Str = since90.toISOString().slice(0, 10);
 
-  const [clientRes, trafficRes, keywordsRes, campaignsRes, socialRes, pagesRes] = await Promise.all([
+  const [clientRes, trafficRes, keywordsRes, campaignsRes, socialRes, pagesRes, leadsRes] = await Promise.all([
     db.from("dashboard_clients").select("name, plan, created_at").eq("id", clientId).maybeSingle(),
     db
       .from("dashboard_daily_traffic")
@@ -43,6 +46,14 @@ export async function buildClientDataDigest(db: SupabaseClient, clientId: string
       .eq("client_id", clientId)
       .gte("date", since90Str)
       .order("date", { ascending: true }),
+    // Leads are all-time (not windowed to 90 days) — the CRM funnel is
+    // meant to be read as a lifetime pipeline, same as the Leads tab itself.
+    db
+      .from("dashboard_leads")
+      .select("id, name, email, phone, source, campaign, status, assigned_to, estimated_value, actual_value, notes, created_at, updated_at")
+      .eq("client_id", clientId)
+      .order("created_at", { ascending: false })
+      .limit(500),
   ]);
 
   const client = clientRes.data;
@@ -51,6 +62,7 @@ export async function buildClientDataDigest(db: SupabaseClient, clientId: string
   const campaigns = campaignsRes.data ?? [];
   const social = socialRes.data ?? [];
   const pages = pagesRes.data ?? [];
+  const leads = (leadsRes.data ?? []) as Lead[];
 
   const lines: string[] = [];
   lines.push(`# Client: ${client?.name ?? "Unknown"} (${client?.plan ?? "no plan"} plan)`);
@@ -148,6 +160,15 @@ export async function buildClientDataDigest(db: SupabaseClient, clientId: string
       }
     }
   }
+  lines.push("");
+
+  const spendBySource: Partial<Record<LeadSource, number>> = {};
+  for (const c of campaigns) {
+    if (c.platform !== "google_ads" && c.platform !== "meta_ads") continue;
+    const platform = c.platform as LeadSource;
+    spendBySource[platform] = (spendBySource[platform] ?? 0) + (c.spend ?? 0);
+  }
+  lines.push(buildLeadsDigestSection(leads, spendBySource));
 
   return lines.join("\n");
 }
@@ -279,6 +300,9 @@ export function buildDemoDataDigest(): string {
   for (const p of pageStats) {
     lines.push(`${humanizePagePath(p.page)} | ${p.sessions} | ${p.views} | ${p.bounce}% | ${p.engagement}s`);
   }
+  lines.push("");
+
+  lines.push(buildLeadsDigestSection(demoLeads(), demoSpendBySource()));
 
   return lines.join("\n");
 }
