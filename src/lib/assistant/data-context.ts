@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { BUSINESS, CAMPAIGNS, KEYWORDS, SOCIAL_PLATFORMS } from "@/components/dashboard/mock-data";
+import { humanizePagePath } from "@/lib/page-labels";
 
 /** Fetches everything about one client from the dashboard_* tables and
  * serializes it into a compact text digest for a Claude prompt. Always
@@ -129,7 +130,7 @@ export async function buildClientDataDigest(db: SupabaseClient, clientId: string
     lines.push(`Top pages by sessions (${topBySessions.length} of ${aggregated.length} tracked pages):`);
     lines.push("page | sessions | page_views | bounce_rate | avg_engagement_sec");
     for (const p of topBySessions) {
-      lines.push(`${p.page_path} | ${p.sessions} | ${p.pageViews} | ${p.bounceRate}% | ${p.avgEngagementSec}s`);
+      lines.push(`${humanizePagePath(p.page_path)} | ${p.sessions} | ${p.pageViews} | ${p.bounceRate}% | ${p.avgEngagementSec}s`);
     }
     lines.push("");
 
@@ -143,7 +144,7 @@ export async function buildClientDataDigest(db: SupabaseClient, clientId: string
     } else {
       lines.push("page | sessions | bounce_rate | avg_engagement_sec");
       for (const p of dropOff) {
-        lines.push(`${p.page_path} | ${p.sessions} | ${p.bounceRate}% | ${p.avgEngagementSec}s`);
+        lines.push(`${humanizePagePath(p.page_path)} | ${p.sessions} | ${p.bounceRate}% | ${p.avgEngagementSec}s`);
       }
     }
   }
@@ -276,7 +277,7 @@ export function buildDemoDataDigest(): string {
     { page: "/pages/about", sessions: 410, views: 460, bounce: 58, engagement: 22 },
   ];
   for (const p of pageStats) {
-    lines.push(`${p.page} | ${p.sessions} | ${p.views} | ${p.bounce}% | ${p.engagement}s`);
+    lines.push(`${humanizePagePath(p.page)} | ${p.sessions} | ${p.views} | ${p.bounce}% | ${p.engagement}s`);
   }
 
   return lines.join("\n");

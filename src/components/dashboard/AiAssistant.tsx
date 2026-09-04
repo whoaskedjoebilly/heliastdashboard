@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Sparkles, X, ArrowUp, Bookmark, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { supabase } from "@/lib/supabase/client";
 import type { SavedReportSaver } from "./types";
+import { AthenaBarChart, AthenaDonutChart, type AthenaChartPoint } from "./AthenaCharts";
 
 interface ChatMessage {
   role: "user" | "assistant";
@@ -24,6 +25,79 @@ const EXAMPLE_PROMPTS = [
   "Which ad campaigns need attention right now?",
   "Write me a report summarizing this month's SEO performance",
 ];
+
+interface ParsedChart {
+  title?: string;
+  data: AthenaChartPoint[];
+}
+
+/** Athena renders breakdowns as fenced ```chart-bar / ```chart-donut code
+ * blocks (see the assistant's system prompt) instead of wide markdown
+ * tables that would overflow the narrow chat panel. While a block is still
+ * streaming in, its JSON is incomplete — parsing just fails silently and a
+ * "Building chart…" placeholder shows until the block closes. */
+function parseChartBlock(raw: string): ParsedChart | null {
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed.data) || parsed.data.length === 0) return null;
+    return parsed as ParsedChart;
+  } catch {
+    return null;
+  }
+}
+
+function ChartPending() {
+  return <div className="ai-chart-pending">Building chart…</div>;
+}
+
+function isChartClassName(className: unknown): boolean {
+  return /language-(chart-bar|chart-donut)/.test(String(className ?? ""));
+}
+
+function markdownComponents(): Record<string, (props: Record<string, unknown>) => ReactNode> {
+  return {
+    // A <pre> only ever wraps a single <code> child — inline code (single
+    // backtick) never has a <pre> ancestor at all, so it never reaches this
+    // component. react-markdown hands pre() the *unrendered* <code> element
+    // (its type is the code() function below, not whatever code() will
+    // eventually return), so the only thing available to inspect here is
+    // that element's own className prop — check it with the same regex
+    // code() uses, rather than trying to look at what code() rendered.
+    pre({ children }) {
+      const child = Array.isArray(children) ? children[0] : children;
+      const childClassName =
+        child && typeof child === "object" && "props" in (child as object) ? (child as { props?: { className?: unknown } }).props?.className : undefined;
+      if (isChartClassName(childClassName)) {
+        return <>{children as ReactNode}</>;
+      }
+      return <pre className="report-code-pre">{children as ReactNode}</pre>;
+    },
+    code({ className, children }) {
+      const lang = /language-(chart-bar|chart-donut)/.exec(String(className ?? ""))?.[1];
+      if (lang) {
+        const raw = String(children).replace(/\n$/, "");
+        const parsed = parseChartBlock(raw);
+        if (!parsed) return <ChartPending />;
+        return lang === "chart-bar" ? (
+          <AthenaBarChart title={parsed.title} data={parsed.data} />
+        ) : (
+          <AthenaDonutChart title={parsed.title} data={parsed.data} />
+        );
+      }
+      // Not a chart block — return a bare <code>. Inline code renders it
+      // directly (no <pre> ever wraps it); a normal fenced block gets
+      // wrapped by the pre() override above.
+      return <code className={className as string | undefined}>{children as ReactNode}</code>;
+    },
+    table({ children }) {
+      return (
+        <div className="report-table-wrap">
+          <table>{children as ReactNode}</table>
+        </div>
+      );
+    },
+  };
+}
 
 export function AiAssistant({ configured, clientId, businessName, saveReport }: AiAssistantProps) {
   const [open, setOpen] = useState(false);
@@ -147,7 +221,9 @@ export function AiAssistant({ configured, clientId, businessName, saveReport }: 
                 {m.role === "assistant" ? (
                   <div className="ai-message-bubble">
                     <div className="report-markdown">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content || "…"}</ReactMarkdown>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents()}>
+                        {m.content || "…"}
+                      </ReactMarkdown>
                     </div>
                     {!isDemo && m.content && !(streaming && i === messages.length - 1) && (
                       <div className="ai-message-actions">

@@ -6,6 +6,7 @@
 // rows, so the two paths can never drift in behavior.
 
 import { DEFAULT_REPORT_RANGE, type ReportRange } from "./date-range";
+import { humanizePagePath } from "@/lib/page-labels";
 
 export type Dataset = "traffic" | "campaigns" | "social" | "pages";
 export type ChartType = "line" | "bar" | "table" | "donut";
@@ -68,7 +69,10 @@ export const DATASETS: Record<Dataset, DatasetDef> = {
       { key: "followers", label: "Followers", format: "number" },
       { key: "engagement_rate", label: "Engagement rate", format: "percent" },
     ],
-    dimensions: [{ key: "platform", label: "Platform" }],
+    dimensions: [
+      { key: "platform", label: "Platform" },
+      { key: "date", label: "Date" },
+    ],
   },
   pages: {
     key: "pages",
@@ -78,6 +82,7 @@ export const DATASETS: Record<Dataset, DatasetDef> = {
       { key: "sessions", label: "Sessions", format: "number" },
       { key: "page_views", label: "Page views", format: "number" },
       { key: "bounce_rate", label: "Bounce rate", format: "percent" },
+      { key: "engagement_rate", label: "Engagement rate", format: "percent" },
       { key: "avg_engagement_sec", label: "Avg. engagement", format: "seconds" },
       { key: "pages_per_session", label: "Pages / session", format: "ratio" },
     ],
@@ -86,6 +91,16 @@ export const DATASETS: Record<Dataset, DatasetDef> = {
       { key: "date", label: "Date" },
     ],
   },
+};
+
+/** Datasets/dimensions that can be split into multiple series on a
+ * date-grouped chart (e.g. "Sessions by date, split by channel" — one line
+ * per channel instead of one aggregate line). Only a dataset with both a
+ * "date" dimension and at least one other categorical dimension qualifies —
+ * campaigns has no date history (a snapshot dataset), so it's excluded. */
+export const SPLITTABLE_DIMENSIONS: Partial<Record<Dataset, string[]>> = {
+  traffic: ["channel"],
+  pages: ["page_path"],
 };
 
 export interface FilterRule {
@@ -106,6 +121,11 @@ export interface ReportConfig {
   /** Optional so older saved reports (from before the date-range picker
    * existed) still load — callers should fall back to DEFAULT_REPORT_RANGE. */
   range?: ReportRange;
+  /** A second dimension to break a date-grouped report into multiple
+   * series (e.g. Group by: Date, Split by: Channel). Only meaningful with
+   * dimension === "date", a single selected metric, and a dataset listed
+   * in SPLITTABLE_DIMENSIONS — null/undefined otherwise. */
+  splitBy?: string | null;
 }
 
 export interface ReportRow {
@@ -178,6 +198,7 @@ export interface PageRawRow {
   page_views: number;
   bounce_rate: number;
   avg_engagement_sec: number;
+  engaged_sessions: number;
 }
 
 function applyFilters<T extends object>(rows: T[], filters: FilterRule[]): T[] {
@@ -268,6 +289,28 @@ export function aggregateCampaigns(rows: CampaignRawRow[], config: ReportConfig)
 
 export function aggregateSocial(rows: SocialRawRow[], config: ReportConfig): ReportRow[] {
   const filtered = applyFilters(rows, config.filters);
+
+  if (config.dimension === "date") {
+    // Followers is a stock metric per platform, but a total-across-platforms
+    // trend line is still meaningful (it's how the Overview/Social tabs
+    // already report "total followers") — sum platforms per day, average
+    // their engagement rates.
+    const groups = new Map<string, { followers: number; engagementSum: number; count: number }>();
+    for (const row of filtered) {
+      const g = groups.get(row.date) ?? { followers: 0, engagementSum: 0, count: 0 };
+      g.followers += row.followers;
+      g.engagementSum += row.engagement_rate;
+      g.count += 1;
+      groups.set(row.date, g);
+    }
+    const out: ReportRow[] = Array.from(groups.entries()).map(([label, g]) => ({
+      label,
+      followers: g.followers,
+      engagement_rate: g.count > 0 ? Math.round((g.engagementSum / g.count) * 10) / 10 : 0,
+    }));
+    return sortAndLimit(out, config);
+  }
+
   const latestByPlatform = new Map<string, SocialRawRow>();
   for (const row of filtered) {
     const existing = latestByPlatform.get(row.platform);
@@ -283,14 +326,18 @@ export function aggregateSocial(rows: SocialRawRow[], config: ReportConfig): Rep
 
 export function aggregatePages(rows: PageRawRow[], config: ReportConfig): ReportRow[] {
   const filtered = applyFilters(rows, config.filters);
-  const groups = new Map<string, { sessions: number; pageViews: number; bounceWeighted: number; engagementWeighted: number }>();
+  const groups = new Map<
+    string,
+    { sessions: number; pageViews: number; bounceWeighted: number; engagementWeighted: number; engagedSessions: number }
+  >();
   for (const row of filtered) {
     const key = config.dimension === "date" ? row.date : row.page_path;
-    const g = groups.get(key) ?? { sessions: 0, pageViews: 0, bounceWeighted: 0, engagementWeighted: 0 };
+    const g = groups.get(key) ?? { sessions: 0, pageViews: 0, bounceWeighted: 0, engagementWeighted: 0, engagedSessions: 0 };
     g.sessions += row.sessions;
     g.pageViews += row.page_views;
     g.bounceWeighted += row.bounce_rate * row.sessions;
     g.engagementWeighted += row.avg_engagement_sec * row.sessions;
+    g.engagedSessions += row.engaged_sessions;
     groups.set(key, g);
   }
   const out: ReportRow[] = Array.from(groups.entries()).map(([label, g]) => ({
@@ -298,8 +345,69 @@ export function aggregatePages(rows: PageRawRow[], config: ReportConfig): Report
     sessions: g.sessions,
     page_views: g.pageViews,
     bounce_rate: g.sessions > 0 ? Math.round((g.bounceWeighted / g.sessions) * 10) / 10 : 0,
+    engagement_rate: g.sessions > 0 ? Math.round((g.engagedSessions / g.sessions) * 1000) / 10 : 0,
     avg_engagement_sec: g.sessions > 0 ? Math.round((g.engagementWeighted / g.sessions) * 10) / 10 : 0,
     pages_per_session: g.sessions > 0 ? Math.round((g.pageViews / g.sessions) * 100) / 100 : 0,
   }));
   return sortAndLimit(out, config);
+}
+
+// ---------------------------------------------------------------------------
+// Split-series aggregation — a date-grouped report broken into multiple
+// series by a second dimension (SPLITTABLE_DIMENSIONS), e.g. "Sessions by
+// date, split by channel". Each date becomes one row; each series value
+// becomes its own field on that row (keyed by its label), so the same
+// ReportRow shape works directly as multi-line/multi-bar chart data with
+// one Line/Bar per discovered key, or a wide table with one column per key.
+// ---------------------------------------------------------------------------
+
+export interface SplitSeriesResult {
+  rows: ReportRow[];
+  seriesKeys: string[];
+}
+
+function aggregateDateSplit<T extends object>(
+  rows: T[],
+  filters: FilterRule[],
+  getDate: (r: T) => string,
+  getSplit: (r: T) => string,
+  getValue: (r: T) => number
+): SplitSeriesResult {
+  const filtered = applyFilters(rows, filters);
+  const byDate = new Map<string, Record<string, number>>();
+  const seriesKeySet = new Set<string>();
+  for (const row of filtered) {
+    const date = getDate(row);
+    const split = getSplit(row) || "Other";
+    seriesKeySet.add(split);
+    const bucket = byDate.get(date) ?? {};
+    bucket[split] = (bucket[split] ?? 0) + getValue(row);
+    byDate.set(date, bucket);
+  }
+  const rowsOut: ReportRow[] = Array.from(byDate.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, bucket]) => ({ label: date, ...bucket }));
+  return { rows: rowsOut, seriesKeys: Array.from(seriesKeySet).sort() };
+}
+
+export function aggregateTrafficSplit(rows: TrafficRawRow[], config: ReportConfig): SplitSeriesResult {
+  const metric = config.metrics[0] ?? "sessions";
+  return aggregateDateSplit(
+    rows,
+    config.filters,
+    (r) => r.date,
+    (r) => r.channel,
+    (r) => (metric === "conversions" ? r.conversions : r.sessions)
+  );
+}
+
+export function aggregatePagesSplit(rows: PageRawRow[], config: ReportConfig): SplitSeriesResult {
+  const metric = config.metrics[0] ?? "sessions";
+  return aggregateDateSplit(
+    rows,
+    config.filters,
+    (r) => r.date,
+    (r) => humanizePagePath(r.page_path),
+    (r) => (metric === "page_views" ? r.page_views : r.sessions)
+  );
 }

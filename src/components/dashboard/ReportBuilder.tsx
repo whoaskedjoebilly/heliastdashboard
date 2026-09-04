@@ -1,14 +1,36 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { ArrowDownWideNarrow, ArrowUpWideNarrow, BarChart3, Check, LineChart as LineChartIcon, Plus, PieChart as PieChartIcon, Save, Table2, X } from "lucide-react";
+import { Bar, BarChart, CartesianGrid, Cell, Legend, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import {
+  ArrowDownWideNarrow,
+  ArrowUpWideNarrow,
+  BarChart3,
+  Check,
+  Download,
+  LineChart as LineChartIcon,
+  Layers,
+  Plus,
+  PieChart as PieChartIcon,
+  Save,
+  Table2,
+  X,
+} from "lucide-react";
 import { Panel } from "./ui/Panel";
 import { Dropdown } from "./ui/Dropdown";
 import { DateRangePicker } from "./DateRangePicker";
-import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "./chart-theme";
+import { chartAxisLine, chartAxisTick, chartLegendStyle, chartTooltipLabelStyle, chartTooltipStyle } from "./chart-theme";
 import { useReportData } from "@/lib/reports/useReportData";
-import { DATASETS, defaultConfig, formatMetricValue, type ChartType, type Dataset, type FilterRule, type ReportConfig } from "@/lib/reports/registry";
+import {
+  DATASETS,
+  defaultConfig,
+  formatMetricValue,
+  SPLITTABLE_DIMENSIONS,
+  type ChartType,
+  type Dataset,
+  type FilterRule,
+  type ReportConfig,
+} from "@/lib/reports/registry";
 import { DEFAULT_REPORT_RANGE } from "@/lib/reports/date-range";
 import { humanizePagePath } from "@/lib/page-labels";
 
@@ -38,6 +60,24 @@ function displayLabel(rawLabel: string, dataset: Dataset, dimension: string): st
   if (dataset === "pages" && dimension === "page_path") return humanizePagePath(rawLabel);
   return rawLabel;
 }
+function csvCell(value: string | number): string {
+  const s = String(value);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function downloadCsv(headerCols: string[], dataRows: (string | number)[][], filename: string) {
+  const csv = [headerCols.map(csvCell).join(","), ...dataRows.map((r) => r.map(csvCell).join(","))].join("\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 const CHART_TYPES: { key: ChartType; label: string; icon: typeof Table2 }[] = [
   { key: "bar", label: "Bar chart", icon: BarChart3 },
   { key: "line", label: "Line chart", icon: LineChartIcon },
@@ -54,15 +94,21 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
 
   const def = DATASETS[config.dataset];
   const range = config.range ?? DEFAULT_REPORT_RANGE;
-  const { rows, loading, error } = useReportData(configured, clientId, config);
+  const { rows, loading, error, seriesKeys } = useReportData(configured, clientId, config);
+  const isSplit = seriesKeys !== null && seriesKeys.length > 0;
 
   // Multiple metrics with different units (currency, %, seconds...) can't
-  // share one chart axis meaningfully — fall back to the table view rather
-  // than drawing a misleading combined chart.
-  const effectiveChartType: ChartType = config.metrics.length > 1 ? "table" : config.chartType;
+  // share one chart axis meaningfully, and a donut can't show a breakdown
+  // that's split into multiple series over time — both fall back to the
+  // table view rather than drawing a misleading chart.
+  const effectiveChartType: ChartType = config.metrics.length > 1 || (isSplit && config.chartType === "donut") ? "table" : config.chartType;
   const primaryMetric = config.metrics[0];
   const primaryFormat = def.metrics.find((m) => m.key === primaryMetric)?.format ?? "number";
   const activeChart = CHART_TYPES.find((c) => c.key === config.chartType) ?? CHART_TYPES[0];
+
+  const splittableFields = SPLITTABLE_DIMENSIONS[config.dataset] ?? [];
+  const canSplit = config.dimension === "date" && config.metrics.length === 1 && splittableFields.length > 0;
+  const splitLabel = config.splitBy ? def.dimensions.find((d) => d.key === config.splitBy)?.label ?? config.splitBy : null;
 
   const chartData = useMemo(
     () => rows.map((r) => ({ ...r, label: displayLabel(String(r.label), config.dataset, config.dimension) })),
@@ -77,8 +123,24 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
       const has = c.metrics.includes(key);
       const metrics = has ? c.metrics.filter((m) => m !== key) : [...c.metrics, key];
       if (metrics.length === 0) return c;
-      return { ...c, metrics, sortMetric: metrics.includes(c.sortMetric) ? c.sortMetric : metrics[0] };
+      // Splitting into multiple series only makes sense with exactly one
+      // metric selected — adding a second clears any active split.
+      return { ...c, metrics, sortMetric: metrics.includes(c.sortMetric) ? c.sortMetric : metrics[0], splitBy: metrics.length > 1 ? null : c.splitBy };
     });
+  };
+
+  const handleExport = () => {
+    if (rows.length === 0) return;
+    const dimLabel = def.dimensions.find((d) => d.key === config.dimension)?.label ?? "Group";
+    if (isSplit && seriesKeys) {
+      const header = [dimLabel, ...seriesKeys];
+      const dataRows = rows.map((r) => [displayLabel(String(r.label), config.dataset, config.dimension), ...seriesKeys.map((k) => r[k] ?? 0)]);
+      downloadCsv(header, dataRows, `${config.dataset}-report.csv`);
+      return;
+    }
+    const header = [dimLabel, ...config.metrics.map((m) => def.metrics.find((dm) => dm.key === m)?.label ?? m)];
+    const dataRows = rows.map((r) => [displayLabel(String(r.label), config.dataset, config.dimension), ...config.metrics.map((m) => r[m] ?? 0)]);
+    downloadCsv(header, dataRows, `${config.dataset}-report.csv`);
   };
 
   const addFilter = () => {
@@ -116,6 +178,10 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
       action={
         <div className="rb-header-actions">
           <DateRangePicker value={range} onChange={(r) => setConfig((c) => ({ ...c, range: r }))} />
+          <button type="button" className="dd-trigger" onClick={handleExport} disabled={rows.length === 0}>
+            <Download size={13} />
+            <span>Export CSV</span>
+          </button>
           {onSave && (
             <Dropdown
               align="right"
@@ -203,7 +269,7 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
                     type="button"
                     className={`dd-item ${config.dimension === d.key ? "active" : ""}`}
                     onClick={() => {
-                      setConfig((c) => ({ ...c, dimension: d.key }));
+                      setConfig((c) => ({ ...c, dimension: d.key, splitBy: d.key === "date" ? c.splitBy : null }));
                       close();
                     }}
                   >
@@ -214,6 +280,47 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
               </div>
             )}
           </Dropdown>
+
+          {canSplit && (
+            <Dropdown
+              trigger={
+                <span className="dd-trigger-label dd-trigger-icon">
+                  <Layers size={13} /> Split by: {splitLabel ?? "None"}
+                </span>
+              }
+            >
+              {(close) => (
+                <div className="dd-menu">
+                  <div className="dd-section-label">Split into multiple series</div>
+                  <button
+                    type="button"
+                    className={`dd-item ${!config.splitBy ? "active" : ""}`}
+                    onClick={() => {
+                      setConfig((c) => ({ ...c, splitBy: null }));
+                      close();
+                    }}
+                  >
+                    None
+                    {!config.splitBy && <Check size={13} />}
+                  </button>
+                  {splittableFields.map((field) => (
+                    <button
+                      key={field}
+                      type="button"
+                      className={`dd-item ${config.splitBy === field ? "active" : ""}`}
+                      onClick={() => {
+                        setConfig((c) => ({ ...c, splitBy: field }));
+                        close();
+                      }}
+                    >
+                      {def.dimensions.find((d) => d.key === field)?.label ?? field}
+                      {config.splitBy === field && <Check size={13} />}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Dropdown>
+          )}
 
           {config.dimension !== "date" && (
             <Dropdown
@@ -345,31 +452,39 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
           ) : rows.length === 0 ? (
             <div className="live-empty">No data for this dataset yet in the selected range.</div>
           ) : effectiveChartType === "table" ? (
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>{def.dimensions.find((d) => d.key === config.dimension)?.label ?? "Group"}</th>
-                  {config.metrics.map((mKey) => (
-                    <th key={mKey}>{def.metrics.find((m) => m.key === mKey)?.label ?? mKey}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((r) => (
-                  <tr key={r.label}>
-                    <td>{displayLabel(String(r.label), config.dataset, config.dimension)}</td>
-                    {config.metrics.map((mKey) => {
-                      const format = def.metrics.find((m) => m.key === mKey)?.format ?? "number";
-                      return (
-                        <td className="mono" key={mKey}>
-                          {formatMetricValue(Number(r[mKey] ?? 0), format)}
-                        </td>
-                      );
-                    })}
+            <div className="report-table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>{def.dimensions.find((d) => d.key === config.dimension)?.label ?? "Group"}</th>
+                    {isSplit && seriesKeys
+                      ? seriesKeys.map((k) => <th key={k}>{k}</th>)
+                      : config.metrics.map((mKey) => <th key={mKey}>{def.metrics.find((m) => m.key === mKey)?.label ?? mKey}</th>)}
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {rows.map((r) => (
+                    <tr key={r.label}>
+                      <td>{displayLabel(String(r.label), config.dataset, config.dimension)}</td>
+                      {isSplit && seriesKeys
+                        ? seriesKeys.map((k) => (
+                            <td className="mono" key={k}>
+                              {formatMetricValue(Number(r[k] ?? 0), primaryFormat)}
+                            </td>
+                          ))
+                        : config.metrics.map((mKey) => {
+                            const format = def.metrics.find((m) => m.key === mKey)?.format ?? "number";
+                            return (
+                              <td className="mono" key={mKey}>
+                                {formatMetricValue(Number(r[mKey] ?? 0), format)}
+                              </td>
+                            );
+                          })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           ) : effectiveChartType === "donut" ? (
             <ResponsiveContainer width="100%" height={260}>
               <PieChart>
@@ -386,7 +501,7 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
               </PieChart>
             </ResponsiveContainer>
           ) : effectiveChartType === "line" ? (
-            <ResponsiveContainer width="100%" height={260}>
+            <ResponsiveContainer width="100%" height={isSplit ? 300 : 260}>
               <LineChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
                 <XAxis dataKey="label" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
@@ -396,11 +511,20 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
                   labelStyle={chartTooltipLabelStyle}
                   formatter={(value) => formatMetricValue(Number(value), primaryFormat)}
                 />
-                <Line type="monotone" dataKey={primaryMetric} stroke={SERIES_COLORS[0]} strokeWidth={2} dot={false} />
+                {isSplit && seriesKeys ? (
+                  <>
+                    <Legend wrapperStyle={chartLegendStyle} iconType="line" iconSize={8} />
+                    {seriesKeys.map((k, i) => (
+                      <Line key={k} type="monotone" dataKey={k} name={k} stroke={SERIES_COLORS[i % SERIES_COLORS.length]} strokeWidth={2} dot={false} />
+                    ))}
+                  </>
+                ) : (
+                  <Line type="monotone" dataKey={primaryMetric} stroke={SERIES_COLORS[0]} strokeWidth={2} dot={false} />
+                )}
               </LineChart>
             </ResponsiveContainer>
           ) : (
-            <ResponsiveContainer width="100%" height={260}>
+            <ResponsiveContainer width="100%" height={isSplit ? 300 : 260}>
               <BarChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
                 <XAxis dataKey="label" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
@@ -410,7 +534,16 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
                   labelStyle={chartTooltipLabelStyle}
                   formatter={(value) => formatMetricValue(Number(value), primaryFormat)}
                 />
-                <Bar dataKey={primaryMetric} fill={SERIES_COLORS[0]} radius={[3, 3, 0, 0]} />
+                {isSplit && seriesKeys ? (
+                  <>
+                    <Legend wrapperStyle={chartLegendStyle} iconType="square" iconSize={8} />
+                    {seriesKeys.map((k, i) => (
+                      <Bar key={k} dataKey={k} name={k} fill={SERIES_COLORS[i % SERIES_COLORS.length]} radius={[3, 3, 0, 0]} />
+                    ))}
+                  </>
+                ) : (
+                  <Bar dataKey={primaryMetric} fill={SERIES_COLORS[0]} radius={[3, 3, 0, 0]} />
+                )}
               </BarChart>
             </ResponsiveContainer>
           )}

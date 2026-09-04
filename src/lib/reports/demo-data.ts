@@ -115,6 +115,7 @@ export function demoPageRows(startStr: string, endStr: string): PageRawRow[] {
         page_views: Math.round(sessions * p.viewsPerSession),
         bounce_rate: p.bounce,
         avg_engagement_sec: p.engagement,
+        engaged_sessions: Math.round(sessions * (1 - p.bounce / 100)),
       });
     }
   }

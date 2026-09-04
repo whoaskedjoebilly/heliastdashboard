@@ -5,8 +5,11 @@ import { supabase } from "@/lib/supabase/client";
 import {
   aggregateCampaigns,
   aggregatePages,
+  aggregatePagesSplit,
   aggregateSocial,
   aggregateTraffic,
+  aggregateTrafficSplit,
+  SPLITTABLE_DIMENSIONS,
   type CampaignRawRow,
   type PageRawRow,
   type ReportConfig,
@@ -24,6 +27,18 @@ interface RawByDataset {
   pages: PageRawRow[];
 }
 const EMPTY_RAW: RawByDataset = { traffic: [], campaigns: [], social: [], pages: [] };
+
+/** True when config.splitBy is set, applies to this dataset, and the rest
+ * of the config is in a state where a split actually makes sense (grouped
+ * by date, exactly one metric selected). */
+function isSplitActive(config: ReportConfig): boolean {
+  return (
+    !!config.splitBy &&
+    config.dimension === "date" &&
+    config.metrics.length === 1 &&
+    (SPLITTABLE_DIMENSIONS[config.dataset] ?? []).includes(config.splitBy)
+  );
+}
 
 /** Runs a ReportConfig against either the demo dataset or a real account's
  * Supabase tables and returns the aggregated rows — a report is a live
@@ -109,7 +124,7 @@ export function useReportData(configured: boolean, clientId: string | null, conf
           case "pages": {
             const { data, error: err } = await supabase
               .from("dashboard_ga4_pages")
-              .select("date, page_path, sessions, page_views, bounce_rate, avg_engagement_sec")
+              .select("date, page_path, sessions, page_views, bounce_rate, avg_engagement_sec, engaged_sessions")
               .eq("client_id", clientId)
               .gte("date", startStr)
               .lte("date", endStr);
@@ -124,6 +139,7 @@ export function useReportData(configured: boolean, clientId: string | null, conf
                   page_views: r.page_views ?? 0,
                   bounce_rate: r.bounce_rate ?? 0,
                   avg_engagement_sec: r.avg_engagement_sec ?? 0,
+                  engaged_sessions: r.engaged_sessions ?? 0,
                 })),
               }));
             }
@@ -146,19 +162,30 @@ export function useReportData(configured: boolean, clientId: string | null, conf
   }, [configured, clientId, config.dataset, startStr, endStr]);
 
   const raw = configured ? realRaw : demoRaw;
+  const split = isSplitActive(config);
 
-  const rows = useMemo<ReportRow[]>(() => {
+  const { rows, seriesKeys } = useMemo<{ rows: ReportRow[]; seriesKeys: string[] | null }>(() => {
+    if (split) {
+      if (config.dataset === "traffic") {
+        const r = aggregateTrafficSplit(raw.traffic, config);
+        return { rows: r.rows, seriesKeys: r.seriesKeys };
+      }
+      if (config.dataset === "pages") {
+        const r = aggregatePagesSplit(raw.pages, config);
+        return { rows: r.rows, seriesKeys: r.seriesKeys };
+      }
+    }
     switch (config.dataset) {
       case "traffic":
-        return aggregateTraffic(raw.traffic, config);
+        return { rows: aggregateTraffic(raw.traffic, config), seriesKeys: null };
       case "campaigns":
-        return aggregateCampaigns(raw.campaigns, config);
+        return { rows: aggregateCampaigns(raw.campaigns, config), seriesKeys: null };
       case "social":
-        return aggregateSocial(raw.social, config);
+        return { rows: aggregateSocial(raw.social, config), seriesKeys: null };
       case "pages":
-        return aggregatePages(raw.pages, config);
+        return { rows: aggregatePages(raw.pages, config), seriesKeys: null };
     }
-  }, [config, raw]);
+  }, [config, raw, split]);
 
-  return { rows, loading, error };
+  return { rows, loading, error, seriesKeys };
 }

@@ -13,6 +13,8 @@ export const chartTooltipStyle = {
 
 export const chartTooltipLabelStyle = { color: "#7C9186" };
 
+export const chartLegendStyle = { fontSize: 11.5, fontFamily: "var(--font-ibm-plex-mono), monospace", color: "#7C9186" };
+
 /** Recharts' default Y-axis domain starts at 0, which is right for most bar
  * charts but flattens an area/line chart into a near-straight line whenever
  * the series has a large baseline and only moves a little around it (e.g.
