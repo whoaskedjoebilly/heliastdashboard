@@ -294,11 +294,23 @@
   flex-direction: column;
 }
 
-/* On desktop this wrapper is invisible to layout — nav/sidebar-foot lay
- * out exactly as if they were direct children of .sidebar. Only the mobile
- * media query below turns it into an actual sliding drawer panel. */
+/* Desktop nav wrapper, laid out as a flex column inside .sidebar so
+ * .sidebar-foot's margin-top: auto still pushes it to the bottom. */
+.sidebar-desktop-nav {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+/* The real drawer panel lives as a sibling of .sidebar (see
+ * DashboardShell.tsx) so it isn't nested inside an ancestor with
+ * backdrop-filter — that creates a new containing block for position:fixed
+ * descendants on spec-strict engines (Safari/WebKit), which broke it on
+ * real devices. Hidden entirely on desktop; the mobile media query below
+ * turns it into the sliding panel. */
 .mobile-drawer {
-  display: contents;
+  display: none;
 }
 
 .hamburger-btn {
@@ -1070,6 +1082,9 @@ nav {
   .hamburger-btn:hover {
     border-color: var(--accent);
     color: var(--accent);
+  }
+  .sidebar-desktop-nav {
+    display: none;
   }
 
   /* The drawer: off-screen (translated fully left) until .open, then

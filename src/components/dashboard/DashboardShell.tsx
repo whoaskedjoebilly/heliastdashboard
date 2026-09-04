@@ -144,6 +144,27 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
 
   const title = NAV.find((n) => n.id === tab)?.label ?? "Overview";
 
+  const navContent = (
+    <>
+      <nav>
+        {NAV.map((n) => (
+          <button key={n.id} className={`nav-item ${tab === n.id ? "active" : ""}`} onClick={() => selectTab(n.id)}>
+            {n.label}
+          </button>
+        ))}
+      </nav>
+      <div className="sidebar-foot">
+        <div className="account-chip">
+          <span className="account-avatar">{businessName.charAt(0).toUpperCase()}</span>
+          <div>
+            <div className="account-name">{businessName}</div>
+            <div className="account-plan">{businessPlan ?? "—"} plan</div>
+          </div>
+        </div>
+      </div>
+    </>
+  );
+
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -160,25 +181,15 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
             {mobileNavOpen ? <X size={19} /> : <Menu size={19} />}
           </button>
         </div>
-        <div className={`mobile-drawer ${mobileNavOpen ? "open" : ""}`}>
-          <nav>
-            {NAV.map((n) => (
-              <button key={n.id} className={`nav-item ${tab === n.id ? "active" : ""}`} onClick={() => selectTab(n.id)}>
-                {n.label}
-              </button>
-            ))}
-          </nav>
-          <div className="sidebar-foot">
-            <div className="account-chip">
-              <span className="account-avatar">{businessName.charAt(0).toUpperCase()}</span>
-              <div>
-                <div className="account-name">{businessName}</div>
-                <div className="account-plan">{businessPlan ?? "—"} plan</div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <div className="sidebar-desktop-nav">{navContent}</div>
       </aside>
+
+      {/* Rendered as a sibling of .sidebar, not a descendant — .sidebar has
+       * backdrop-filter, which per spec creates a new containing block for
+       * position:fixed descendants. Safari/WebKit enforces that strictly
+       * (unlike Chromium), which broke this drawer on real iOS devices when
+       * it lived inside .sidebar. */}
+      <div className={`mobile-drawer ${mobileNavOpen ? "open" : ""}`}>{navContent}</div>
       {mobileNavOpen && <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />}
 
       <main className="main">
