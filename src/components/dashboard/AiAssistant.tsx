@@ -50,6 +50,20 @@ function ChartPending() {
   return <div className="ai-chart-pending">Building chart…</div>;
 }
 
+/** Shown in place of the assistant bubble's content while waiting on the
+ * first streamed token — otherwise the bubble sits empty (or showed a
+ * static "…") for however long the request takes, with nothing to signal
+ * Athena is actually working on it. */
+function TypingDots() {
+  return (
+    <div className="ai-typing" role="status" aria-label="Athena is responding">
+      <span />
+      <span />
+      <span />
+    </div>
+  );
+}
+
 function isChartClassName(className: unknown): boolean {
   return /language-(chart-bar|chart-donut)/.test(String(className ?? ""));
 }
@@ -220,11 +234,15 @@ export function AiAssistant({ configured, clientId, businessName, saveReport }: 
               <div className={`ai-message ai-message-${m.role}`} key={i}>
                 {m.role === "assistant" ? (
                   <div className="ai-message-bubble">
-                    <div className="report-markdown">
-                      <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents()}>
-                        {m.content || "…"}
-                      </ReactMarkdown>
-                    </div>
+                    {m.content === "" && streaming && i === messages.length - 1 ? (
+                      <TypingDots />
+                    ) : (
+                      <div className="report-markdown">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents()}>
+                          {m.content || "…"}
+                        </ReactMarkdown>
+                      </div>
+                    )}
                     {!isDemo && m.content && !(streaming && i === messages.length - 1) && (
                       <div className="ai-message-actions">
                         {savingIndex === i ? (

@@ -19,7 +19,7 @@ import {
 import { Panel } from "./ui/Panel";
 import { Dropdown } from "./ui/Dropdown";
 import { DateRangePicker } from "./DateRangePicker";
-import { chartAxisLine, chartAxisTick, chartLegendStyle, chartTooltipLabelStyle, chartTooltipStyle } from "./chart-theme";
+import { chartAxisLine, chartAxisTick, chartCompactTick, chartLegendStyle, chartTooltipLabelStyle, chartTooltipStyle } from "./chart-theme";
 import { useReportData } from "@/lib/reports/useReportData";
 import {
   DATASETS,
@@ -114,7 +114,11 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
     () => rows.map((r) => ({ ...r, label: displayLabel(String(r.label), config.dataset, config.dimension) })),
     [rows, config.dataset, config.dimension]
   );
-  const xAxisInterval = Math.max(0, Math.ceil(chartData.length / 8) - 1);
+  // Target ~6 ticks regardless of how many points there are — matches the
+  // interval used everywhere else in the app. 8 was too dense: on a narrow
+  // panel (mobile, or this panel next to the sidebar) that many date labels
+  // run together with no gap between them.
+  const xAxisInterval = Math.max(0, Math.ceil(chartData.length / 6) - 1);
 
   const setDataset = (dataset: Dataset) => setConfig((c) => ({ ...defaultConfig(dataset, c.range), range: c.range }));
 
@@ -505,7 +509,7 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
               <LineChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
                 <XAxis dataKey="label" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
-                <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={44} />
+                <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={48} tickFormatter={chartCompactTick} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}
                   labelStyle={chartTooltipLabelStyle}
@@ -528,7 +532,7 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
               <BarChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
                 <XAxis dataKey="label" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
-                <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={44} />
+                <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={48} tickFormatter={chartCompactTick} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}
                   labelStyle={chartTooltipLabelStyle}

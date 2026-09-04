@@ -6,7 +6,7 @@ import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { StatusDot } from "../ui/StatusDot";
 import { AD_SPEND_LONG, CAMPAIGNS, CONVERSIONS_LONG, ROAS_LONG, windowAverage, windowMetrics } from "../mock-data";
-import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle, chartValueDomain } from "../chart-theme";
+import { chartAxisLine, chartAxisTick, chartCompactTick, chartTooltipLabelStyle, chartTooltipStyle, chartValueDomain } from "../chart-theme";
 import { useAdsData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
 
@@ -145,7 +145,7 @@ export function AdsTab({ configured, clientId, clientLoading, range }: AdsTabPro
           <div className="live-empty">No conversion data yet.</div>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
-            <AreaChart data={conversionsTrend} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+            <AreaChart data={conversionsTrend} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
               <defs>
                 <linearGradient id="convFill" x1="0" y1="0" x2="0" y2="1">
                   <stop offset="0%" stopColor="#F2A93E" stopOpacity={0.3} />
@@ -164,9 +164,10 @@ export function AdsTab({ configured, clientId, clientLoading, range }: AdsTabPro
                 tick={chartAxisTick}
                 axisLine={false}
                 tickLine={false}
-                width={32}
+                width={48}
                 domain={chartValueDomain(conversionsTrend)}
                 allowDecimals={false}
+                tickFormatter={chartCompactTick}
               />
               <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
               <Area type="monotone" dataKey="value" name="Conversions" stroke="#F2A93E" strokeWidth={2} fill="url(#convFill)" />

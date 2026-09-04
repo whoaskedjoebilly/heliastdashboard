@@ -6,7 +6,7 @@ import { Panel } from "../ui/Panel";
 import { MetricHero } from "../ui/MetricHero";
 import { Delta } from "../ui/Delta";
 import { BACKLINKS_LONG, INDEXED_PAGES_LONG, KEYWORDS, SEO_HEALTH, TRAFFIC_LONG, endpointWindow, windowMetrics } from "../mock-data";
-import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
+import { chartAxisLine, chartAxisTick, chartCompactTick, chartTooltipLabelStyle, chartTooltipStyle } from "../chart-theme";
 import { useSeoData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
 
@@ -135,7 +135,7 @@ export function SeoTab({ configured, clientId, clientLoading, range }: SeoTabPro
           <div className="live-empty">No organic traffic data yet.</div>
         ) : (
           <ResponsiveContainer width="100%" height={200}>
-            <BarChart data={organicSessions} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+            <BarChart data={organicSessions} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
               <CartesianGrid stroke="#1B2721" vertical={false} />
               <XAxis
                 dataKey="date"
@@ -144,7 +144,7 @@ export function SeoTab({ configured, clientId, clientLoading, range }: SeoTabPro
                 tickLine={false}
                 interval={Math.max(0, Math.ceil(organicSessions.length / 6) - 1)}
               />
-              <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={40} />
+              <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={48} tickFormatter={chartCompactTick} />
               <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
               <Bar dataKey="value" name="Organic sessions" fill="#3EF28C" radius={[3, 3, 0, 0]} />
             </BarChart>

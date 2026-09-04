@@ -8,7 +8,7 @@ import { Delta } from "../ui/Delta";
 import { StatusDot } from "../ui/StatusDot";
 import { DonutChannelChart } from "../ui/DonutChannelChart";
 import { AD_SPEND_LONG, CAMPAIGNS, CHANNEL_SPLIT, CONVERSIONS_LONG, KEYWORDS, ROAS_LONG, TRAFFIC_LONG, windowAverage, windowMetrics } from "../mock-data";
-import { chartAxisLine, chartAxisTick, chartTooltipLabelStyle, chartTooltipStyle, chartValueDomain } from "../chart-theme";
+import { chartAxisLine, chartAxisTick, chartCompactTick, chartTooltipLabelStyle, chartTooltipStyle, chartValueDomain } from "../chart-theme";
 import { useOverviewData, RANGE_CONFIG, type RangeKey } from "@/lib/dashboard-data";
 import type { TabDataProps } from "../types";
 
@@ -123,7 +123,7 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
             <div className="live-empty">No traffic data yet — connect an integration to start seeing numbers here.</div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={traffic} margin={{ top: 6, right: 8, left: -18, bottom: 0 }}>
+              <AreaChart data={traffic} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
                 <defs>
                   <linearGradient id="trafficFill" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor="#3EF28C" stopOpacity={0.35} />
@@ -142,9 +142,10 @@ export function OverviewTab({ configured, clientId, clientLoading, range }: Over
                   tick={chartAxisTick}
                   axisLine={false}
                   tickLine={false}
-                  width={40}
+                  width={48}
                   domain={chartValueDomain(traffic)}
                   allowDecimals={false}
+                  tickFormatter={chartCompactTick}
                 />
                 <Tooltip contentStyle={chartTooltipStyle} labelStyle={chartTooltipLabelStyle} />
                 <Area type="monotone" dataKey="value" name="Sessions" stroke="#3EF28C" strokeWidth={2} fill="url(#trafficFill)" />
