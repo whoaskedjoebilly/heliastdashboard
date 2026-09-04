@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { Menu, X } from "lucide-react";
 import { BUSINESS } from "./mock-data";
 import { OverviewTab } from "./tabs/OverviewTab";
 import { SeoTab } from "./tabs/SeoTab";
@@ -41,6 +42,40 @@ const RANGE_AWARE_TABS = new Set<TabId>(["overview", "seo", "ads", "social"]);
 export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
   const [tab, setTab] = useState<TabId>("overview");
   const [range, setRange] = useState<RangeKey>("30d");
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+
+  // Close the mobile drawer on Escape, and if the viewport is ever resized
+  // past the mobile breakpoint while it's open (e.g. rotating a tablet).
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setMobileNavOpen(false);
+    };
+    const onResize = () => {
+      if (window.innerWidth > 900) setMobileNavOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener("resize", onResize);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [mobileNavOpen]);
+
+  const selectTab = (id: TabId) => {
+    setTab(id);
+    setMobileNavOpen(false);
+  };
+
+  // Prevent the page behind the drawer from scrolling while it's open.
+  useEffect(() => {
+    if (!mobileNavOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [mobileNavOpen]);
   const { client, loading, configured: reallyConfigured } = useDashboardClient();
 
   // A demo session has no real Supabase auth session, so even though
@@ -115,24 +150,36 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
         <div className="sidebar-mark">
           <span className="mark-glyph">H</span>
           <span className="mark-word">Heliast</span>
+          <button
+            type="button"
+            className="hamburger-btn"
+            onClick={() => setMobileNavOpen((v) => !v)}
+            aria-label={mobileNavOpen ? "Close menu" : "Open menu"}
+            aria-expanded={mobileNavOpen}
+          >
+            {mobileNavOpen ? <X size={19} /> : <Menu size={19} />}
+          </button>
         </div>
-        <nav>
-          {NAV.map((n) => (
-            <button key={n.id} className={`nav-item ${tab === n.id ? "active" : ""}`} onClick={() => setTab(n.id)}>
-              {n.label}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-foot">
-          <div className="account-chip">
-            <span className="account-avatar">{businessName.charAt(0).toUpperCase()}</span>
-            <div>
-              <div className="account-name">{businessName}</div>
-              <div className="account-plan">{businessPlan ?? "—"} plan</div>
+        <div className={`mobile-drawer ${mobileNavOpen ? "open" : ""}`}>
+          <nav>
+            {NAV.map((n) => (
+              <button key={n.id} className={`nav-item ${tab === n.id ? "active" : ""}`} onClick={() => selectTab(n.id)}>
+                {n.label}
+              </button>
+            ))}
+          </nav>
+          <div className="sidebar-foot">
+            <div className="account-chip">
+              <span className="account-avatar">{businessName.charAt(0).toUpperCase()}</span>
+              <div>
+                <div className="account-name">{businessName}</div>
+                <div className="account-plan">{businessPlan ?? "—"} plan</div>
+              </div>
             </div>
           </div>
         </div>
       </aside>
+      {mobileNavOpen && <div className="sidebar-backdrop" onClick={() => setMobileNavOpen(false)} />}
 
       <main className="main">
         <header className="topbar">
