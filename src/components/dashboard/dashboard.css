@@ -1912,36 +1912,6 @@ nav {
   color: var(--accent);
 }
 
-/* ---------------- Analytics sub-nav (Reports / Leads) ---------------- */
-
-.analytics-subnav {
-  display: inline-flex;
-  background: var(--glass-bg);
-  backdrop-filter: blur(var(--glass-blur));
-  -webkit-backdrop-filter: blur(var(--glass-blur));
-  border: 1px solid var(--glass-border);
-  border-radius: 9px;
-  padding: 3px;
-  gap: 2px;
-  margin-bottom: 18px;
-}
-.analytics-subnav button {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: none;
-  border: none;
-  color: var(--text-muted);
-  font-size: 12.5px;
-  padding: 7px 14px;
-  border-radius: 6px;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.analytics-subnav button.active {
-  background: var(--glass-bg-raised);
-  color: var(--accent);
-}
-
 /* ---------------- CRM / Leads ---------------- */
 
 .lead-stats-row {

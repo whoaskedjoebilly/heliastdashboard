@@ -9,6 +9,7 @@ import { AdsTab } from "./tabs/AdsTab";
 import { SocialTab } from "./tabs/SocialTab";
 import { LiveTab } from "./tabs/LiveTab";
 import { AnalyticsTab } from "./tabs/AnalyticsTab";
+import { LeadsPanel } from "./LeadsPanel";
 import { SettingsTab } from "./tabs/SettingsTab";
 import { AiAssistant } from "./AiAssistant";
 import { useCustomReports, useDashboardClient, useSavedReports, type RangeKey } from "@/lib/dashboard-data";
@@ -28,15 +29,16 @@ const NAV = [
   { id: "social", label: "Social" },
   { id: "live", label: "Live" },
   { id: "analytics", label: "Analytics" },
+  { id: "leads", label: "Leads" },
   { id: "settings", label: "Settings" },
 ] as const;
 
 type TabId = (typeof NAV)[number]["id"];
 
-// Live (real-time feed), Analytics, and Settings have no use for the global
-// range toggle: Live has no time-windowed metrics, and Analytics' report
-// builder has its own dedicated date-range picker (including custom
-// start/end dates) that's independent of the rest of the dashboard.
+// Live (real-time feed), Analytics, Leads, and Settings have no use for the
+// global range toggle: Live has no time-windowed metrics, Analytics' report
+// builder has its own dedicated date-range picker, and the Leads pipeline is
+// meant to be read as an all-time funnel rather than a windowed one.
 const RANGE_AWARE_TABS = new Set<TabId>(["overview", "seo", "ads", "social"]);
 
 export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
@@ -122,6 +124,7 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
           deleteCustomReport={deleteCustomReport}
         />
       );
+    if (tab === "leads") return <LeadsPanel configured={configured} clientId={clientId} />;
     return <SettingsTab onLogout={onLogout} businessName={businessName} businessPlan={businessPlan} clientId={clientId} />;
   }, [
     tab,

@@ -12,7 +12,7 @@ export function buildLeadsDigestSection(leads: Lead[], spendBySource: Partial<Re
   if (leads.length === 0) {
     lines.push(
       "No leads recorded yet — leads are added manually (or via lead-capture forms/ads once wired up) on the " +
-        "Analytics > Leads (CRM) tab. Site-wide conversion counts elsewhere still work without this."
+        "Leads tab. Site-wide conversion counts elsewhere still work without this."
     );
     return lines.join("\n");
   }
