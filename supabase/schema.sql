@@ -15,7 +15,7 @@ create table dashboard_clients (
 create table dashboard_client_integrations (
   id uuid primary key default gen_random_uuid(),
   client_id uuid references dashboard_clients(id) on delete cascade,
-  platform text not null, -- 'gsc' | 'gads' | 'meta_ads' | 'instagram' | 'tiktok' | 'facebook'
+  platform text not null, -- 'gsc' | 'gads' | 'meta_ads' | 'instagram' | 'tiktok' | 'facebook' | 'shopify'
   access_token text not null,
   refresh_token text,
   expires_at timestamptz,
@@ -98,6 +98,18 @@ create table dashboard_leads (
 create index dashboard_leads_client_status_idx on dashboard_leads(client_id, status);
 create index dashboard_leads_client_created_idx on dashboard_leads(client_id, created_at desc);
 
+-- Daily order count + revenue pulled from a connected Shopify store's
+-- Orders API (dashboard_client_integrations, platform 'shopify').
+create table dashboard_shopify_sales (
+  id uuid primary key default gen_random_uuid(),
+  client_id uuid references dashboard_clients(id) on delete cascade,
+  date date not null,
+  orders int,
+  revenue numeric,
+  synced_at timestamptz default now(),
+  unique (client_id, date)
+);
+
 -- ---------------------------------------------------------------------------
 -- Row Level Security — every client-facing table only returns rows for
 -- clients owned by the logged-in user. dashboard_client_integrations holds
@@ -113,6 +125,7 @@ alter table dashboard_ad_campaigns enable row level security;
 alter table dashboard_social_stats enable row level security;
 alter table dashboard_live_visitors enable row level security;
 alter table dashboard_leads enable row level security;
+alter table dashboard_shopify_sales enable row level security;
 
 create policy "clients read their own record"
 on dashboard_clients for select
@@ -160,5 +173,11 @@ using (
   client_id in (select id from dashboard_clients where owner_user_id = auth.uid())
 )
 with check (
+  client_id in (select id from dashboard_clients where owner_user_id = auth.uid())
+);
+
+create policy "clients read their own shopify sales"
+on dashboard_shopify_sales for select
+using (
   client_id in (select id from dashboard_clients where owner_user_id = auth.uid())
 );

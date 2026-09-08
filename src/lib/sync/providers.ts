@@ -249,6 +249,48 @@ export async function syncGa4(integration: IntegrationRow, db: SupabaseClient) {
   if (error) throw error;
 }
 
+/** Daily order count + revenue from Shopify's Orders API, upserted into
+ * dashboard_shopify_sales. external_account_id is the shop's myshopify.com
+ * domain; access_token is the permanent offline token from the connect
+ * flow (no refresh needed). Orders are grouped by their creation date in
+ * the shop's own timezone (the date Shopify itself returns), not UTC, so
+ * this lines up with what the merchant sees in their Shopify admin. */
+export async function syncShopify(integration: IntegrationRow, db: SupabaseClient) {
+  if (!integration.external_account_id) throw new Error("shopify integration missing external_account_id (shop domain)");
+
+  const since = new Date();
+  since.setDate(since.getDate() - 30);
+  const params = new URLSearchParams({
+    status: "any",
+    created_at_min: since.toISOString(),
+    limit: "250",
+  });
+  const res = await fetch(`https://${integration.external_account_id}/admin/api/2024-10/orders.json?${params}`, {
+    headers: { "X-Shopify-Access-Token": integration.access_token },
+  });
+  if (!res.ok) throw new Error(`Shopify orders.json failed: ${await res.text()}`);
+  const { orders } = (await res.json()) as { orders?: { created_at: string; total_price: string }[] };
+
+  const byDate = new Map<string, { orders: number; revenue: number }>();
+  for (const order of orders ?? []) {
+    const date = order.created_at.slice(0, 10);
+    const bucket = byDate.get(date) ?? { orders: 0, revenue: 0 };
+    bucket.orders += 1;
+    bucket.revenue += Number(order.total_price ?? 0);
+    byDate.set(date, bucket);
+  }
+  const upserts = Array.from(byDate.entries()).map(([date, bucket]) => ({
+    client_id: integration.client_id,
+    date,
+    orders: bucket.orders,
+    revenue: Math.round(bucket.revenue * 100) / 100,
+    synced_at: new Date().toISOString(),
+  }));
+  if (upserts.length === 0) return;
+  const { error } = await db.from("dashboard_shopify_sales").upsert(upserts, { onConflict: "client_id,date" });
+  if (error) throw error;
+}
+
 export async function syncTiktok(integration: IntegrationRow, db: SupabaseClient) {
   const token = await refreshTikTokToken(integration);
   const res = await fetch("https://open.tiktokapis.com/v2/user/info/?fields=follower_count,likes_count", {

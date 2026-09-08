@@ -1,6 +1,6 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { isCronRequest } from "@/lib/admin-auth";
-import { syncGa4, syncGoogleAds, syncGsc, syncMetaAds, syncMetaPageStats, syncTiktok, type IntegrationRow } from "@/lib/sync/providers";
+import { syncGa4, syncGoogleAds, syncGsc, syncMetaAds, syncMetaPageStats, syncShopify, syncTiktok, type IntegrationRow } from "@/lib/sync/providers";
 
 // Daily sync job (dashboard-live-setup.md Phase 7) — configured to run via
 // vercel.json's cron schedule. Vercel calls this with
@@ -46,6 +46,9 @@ export async function GET(req: Request) {
           break;
         case "tiktok":
           await syncTiktok(integration, supabaseAdmin);
+          break;
+        case "shopify":
+          await syncShopify(integration, supabaseAdmin);
           break;
         default:
           throw new Error(`Unknown platform: ${integration.platform}`);
