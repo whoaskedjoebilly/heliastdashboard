@@ -197,14 +197,19 @@ export async function syncMetaPageStats(integration: IntegrationRow, db: Supabas
 /** GA4 page-level engagement for the last 7 days (dashboard_ga4_pages) —
  * the assistant's only source for "where are people dropping off" /
  * per-page performance questions, since dashboard_daily_traffic only has
- * site-wide daily totals. external_account_id is the GA4 property ID in
- * "properties/123456789" form. */
+ * site-wide daily totals. external_account_id is the GA4 property ID —
+ * accepts either the bare numeric ID (e.g. from someone pasting just the
+ * number off the connect link, which is the easy mistake to make) or the
+ * full "properties/123456789" form the API actually needs. */
 export async function syncGa4(integration: IntegrationRow, db: SupabaseClient) {
   if (!integration.external_account_id) throw new Error("ga4 integration missing external_account_id (GA4 property ID)");
   const token = await refreshGoogleToken(integration);
+  const propertyId = integration.external_account_id.startsWith("properties/")
+    ? integration.external_account_id
+    : `properties/${integration.external_account_id}`;
 
   const res = await fetch(
-    `https://analyticsdata.googleapis.com/v1beta/${integration.external_account_id}:runReport`,
+    `https://analyticsdata.googleapis.com/v1beta/${propertyId}:runReport`,
     {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
