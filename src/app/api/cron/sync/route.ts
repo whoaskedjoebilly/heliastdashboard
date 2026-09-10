@@ -1,14 +1,17 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { isCronRequest } from "@/lib/admin-auth";
+import { isAdminRequest, isCronRequest } from "@/lib/admin-auth";
 import { syncGa4, syncGoogleAds, syncGsc, syncMetaAds, syncMetaPageStats, syncShopify, syncTiktok, type IntegrationRow } from "@/lib/sync/providers";
 
 // Daily sync job (dashboard-live-setup.md Phase 7) — configured to run via
 // vercel.json's cron schedule. Vercel calls this with
 // `Authorization: Bearer $CRON_SECRET` automatically when CRON_SECRET is
-// set as an env var; reject anything else so this can't be triggered by
-// just anyone hitting the URL.
+// set as an env var. Also accepts the same admin token the connect routes
+// use (as ?token=... or x-admin-token), so an admin can trigger an
+// out-of-schedule sync by just pasting a link, the same way every other
+// admin-only route in this app works — reject anything else so this can't
+// be triggered by just anyone hitting the URL.
 export async function GET(req: Request) {
-  if (!isCronRequest(req)) {
+  if (!isCronRequest(req) && !isAdminRequest(req)) {
     return new Response("Not authorized", { status: 401 });
   }
   if (!supabaseAdmin) {
