@@ -67,6 +67,35 @@ function displayLabel(rawLabel: string, dataset: Dataset, dimension: string): st
   if (dataset === "traffic" && dimension === "channel") return humanizeChannel(rawLabel);
   return rawLabel;
 }
+// Real page paths/channel names run much longer than the demo storefront's
+// curated labels (e.g. humanizePagePath's generic fallback appends "page"/
+// "product page" to every unmatched route) — long enough that even the
+// reduced tick count below still collided into unreadable overlapping text
+// on a narrow chart. Truncating (full text stays in the tooltip) and
+// angling the ticks gives each label its own space regardless of length.
+const AXIS_TICK_MAX_CHARS = 12;
+
+function ChartAxisTick(props: { x?: string | number; y?: string | number; payload?: { value?: unknown } }) {
+  const x = Number(props.x ?? 0);
+  const y = Number(props.y ?? 0);
+  const raw = String(props.payload?.value ?? "");
+  const short = raw.length > AXIS_TICK_MAX_CHARS ? `${raw.slice(0, AXIS_TICK_MAX_CHARS - 1)}…` : raw;
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={10}
+      textAnchor="end"
+      transform={`rotate(-35, ${x}, ${y})`}
+      fill="#7C9186"
+      fontSize={11}
+      fontFamily="var(--font-ibm-plex-mono), monospace"
+    >
+      {short}
+    </text>
+  );
+}
+
 function csvCell(value: string | number): string {
   const s = String(value);
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -569,9 +598,9 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
             </ResponsiveContainer>
           ) : effectiveChartType === "line" ? (
             <ResponsiveContainer width="100%" height={isSplit ? 300 : 260}>
-              <LineChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
+              <LineChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 22 }}>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
-                <XAxis dataKey="label" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
+                <XAxis dataKey="label" tick={ChartAxisTick} height={44} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
                 <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={48} tickFormatter={chartCompactTick} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}
@@ -592,9 +621,9 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
             </ResponsiveContainer>
           ) : (
             <ResponsiveContainer width="100%" height={isSplit ? 300 : 260}>
-              <BarChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 0 }}>
+              <BarChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 22 }}>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
-                <XAxis dataKey="label" tick={chartAxisTick} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
+                <XAxis dataKey="label" tick={ChartAxisTick} height={44} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
                 <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={48} tickFormatter={chartCompactTick} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}
