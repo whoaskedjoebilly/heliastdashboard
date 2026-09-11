@@ -84,9 +84,9 @@ function ChartAxisTick(props: { x?: string | number; y?: string | number; payloa
     <text
       x={x}
       y={y}
-      dy={10}
+      dy={8}
       textAnchor="end"
-      transform={`rotate(-35, ${x}, ${y})`}
+      transform={`rotate(-55, ${x}, ${y})`}
       fill="#7C9186"
       fontSize={11}
       fontFamily="var(--font-ibm-plex-mono), monospace"
@@ -598,9 +598,9 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
             </ResponsiveContainer>
           ) : effectiveChartType === "line" ? (
             <ResponsiveContainer width="100%" height={isSplit ? 300 : 260}>
-              <LineChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 22 }}>
+              <LineChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 30 }}>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
-                <XAxis dataKey="label" tick={ChartAxisTick} height={44} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
+                <XAxis dataKey="label" tick={ChartAxisTick} height={56} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
                 <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={48} tickFormatter={chartCompactTick} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}
@@ -621,9 +621,9 @@ export function ReportBuilder({ configured, clientId, onSave, initialConfig }: R
             </ResponsiveContainer>
           ) : (
             <ResponsiveContainer width="100%" height={isSplit ? 300 : 260}>
-              <BarChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 22 }}>
+              <BarChart data={chartData} margin={{ top: 6, right: 8, left: -8, bottom: 30 }}>
                 <CartesianGrid stroke="#1B2721" vertical={false} />
-                <XAxis dataKey="label" tick={ChartAxisTick} height={44} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
+                <XAxis dataKey="label" tick={ChartAxisTick} height={56} axisLine={chartAxisLine} tickLine={false} interval={xAxisInterval} />
                 <YAxis tick={chartAxisTick} axisLine={false} tickLine={false} width={48} tickFormatter={chartCompactTick} />
                 <Tooltip
                   contentStyle={chartTooltipStyle}

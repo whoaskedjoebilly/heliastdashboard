@@ -548,6 +548,15 @@ nav {
 .channel-label {
   font-size: 13px;
   color: var(--text-muted);
+  /* Real location/page names ("Fort Worth, United States", a long GA4 page
+     path) run well past this column's 110px — without this, the default
+     wrap would stretch that one row across 2-3 lines while its neighbors
+     stay single-line, an uneven, unpolished-looking list. Truncate instead,
+     matching .live-visitor-page's same fix for the row below it. */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 .channel-bar-track {
   height: 6px;
