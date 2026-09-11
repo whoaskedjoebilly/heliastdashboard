@@ -173,6 +173,12 @@ const EMPTY_RAW: RawOverview = { trafficRows: [], topKeywords: [], campaigns: []
  * plus its 90-day prior comparison period) and re-derives the displayed
  * totals/trend/channel split client-side whenever `range` changes, so
  * switching the 7d/30d/90d toggle doesn't require a refetch. */
+// GA4 (and everything else feeding dashboard_daily_traffic) only syncs
+// once a day via the cron job — polling faster than that just re-fetches
+// identical rows. A minute is frequent enough to pick up a fresh sync
+// shortly after it lands without hammering Supabase for no reason.
+const OVERVIEW_REFRESH_MS = 60_000;
+
 export function useOverviewData(clientId: string | null, range: RangeKey = "30d") {
   const [raw, setRaw] = useState<RawOverview>(EMPTY_RAW);
   const [loading, setLoading] = useState(false);
@@ -181,28 +187,35 @@ export function useOverviewData(clientId: string | null, range: RangeKey = "30d"
     if (!supabase || !clientId) {
       return;
     }
+    // Captured as a plain const so it stays non-null inside `load` even
+    // when called later from the setInterval callback below — TS can't
+    // carry the narrowing above into a closure invoked from another closure.
+    const client = supabase;
     let cancelled = false;
 
-    (async () => {
-      setLoading(true);
+    const load = async (isInitial: boolean) => {
+      // Only show the loading state on the first fetch — a background
+      // refresh should swap the numbers in quietly, not flash the whole
+      // tab back to "Loading…" every minute.
+      if (isInitial) setLoading(true);
       const since180 = new Date();
       since180.setDate(since180.getDate() - 180);
       const since180Str = since180.toISOString().slice(0, 10);
 
       const [trafficRes, keywordsRes, campaignsRes] = await Promise.all([
-        supabase
+        client
           .from("dashboard_daily_traffic")
           .select("date, sessions, conversions, channel")
           .eq("client_id", clientId)
           .gte("date", since180Str)
           .order("date", { ascending: true }),
-        supabase
+        client
           .from("dashboard_keyword_rankings")
           .select("keyword, position, search_volume, checked_at")
           .eq("client_id", clientId)
           .order("checked_at", { ascending: false })
           .limit(100),
-        supabase
+        client
           .from("dashboard_ad_campaigns")
           .select("name, platform, spend, roas, status, synced_at")
           .eq("client_id", clientId)
@@ -245,10 +258,14 @@ export function useOverviewData(clientId: string | null, range: RangeKey = "30d"
 
       setRaw({ trafficRows: trafficRes.data ?? [], topKeywords, campaigns });
       setLoading(false);
-    })();
+    };
+
+    load(true);
+    const interval = setInterval(() => load(false), OVERVIEW_REFRESH_MS);
 
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, [clientId]);
 
