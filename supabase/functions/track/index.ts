@@ -12,6 +12,35 @@ const CORS_HEADERS = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
+// The tracking snippet only sends lat/lng when the visitor's browser grants
+// the geolocation permission prompt — most people decline it, so relying on
+// that alone left the globe almost always empty. Fall back to a free IP
+// geolocation lookup (no permission needed) whenever the client didn't send
+// coordinates, using the visitor's IP from the forwarding headers Deno
+// Deploy/Supabase populate on every request.
+async function geolocateIp(ip: string | null): Promise<{ location: string | null; lat: number | null; lng: number | null }> {
+  const empty = { location: null, lat: null, lng: null };
+  if (!ip || ip === "127.0.0.1" || ip === "::1" || ip.startsWith("10.") || ip.startsWith("192.168.")) {
+    return empty;
+  }
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 2000);
+    const res = await fetch(`https://ipwho.is/${ip}`, { signal: controller.signal });
+    clearTimeout(timeout);
+    const data = await res.json();
+    if (!data.success) return empty;
+    const parts = [data.city, data.country].filter(Boolean);
+    return {
+      location: parts.length ? parts.join(", ") : null,
+      lat: typeof data.latitude === "number" ? data.latitude : null,
+      lng: typeof data.longitude === "number" ? data.longitude : null,
+    };
+  } catch {
+    return empty;
+  }
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: CORS_HEADERS });
@@ -52,12 +81,24 @@ Deno.serve(async (req: Request) => {
     });
   }
 
+  let finalLocation = location ?? null;
+  let finalLat = lat ?? null;
+  let finalLng = lng ?? null;
+  if (finalLat == null || finalLng == null) {
+    const forwardedFor = req.headers.get("x-forwarded-for");
+    const ip = forwardedFor ? forwardedFor.split(",")[0].trim() : req.headers.get("x-real-ip");
+    const geo = await geolocateIp(ip);
+    finalLocation = finalLocation ?? geo.location;
+    finalLat = finalLat ?? geo.lat;
+    finalLng = finalLng ?? geo.lng;
+  }
+
   const { error: insertError } = await supabase.from("dashboard_live_visitors").insert({
     client_id,
     page,
-    location: location ?? null,
-    lat: lat ?? null,
-    lng: lng ?? null,
+    location: finalLocation,
+    lat: finalLat,
+    lng: finalLng,
     device: device ?? null,
   });
   if (insertError) {
