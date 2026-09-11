@@ -194,10 +194,26 @@ export async function syncMetaPageStats(integration: IntegrationRow, db: Supabas
   if (error) throw error;
 }
 
-/** GA4 page-level engagement for the last 7 days (dashboard_ga4_pages) —
- * the assistant's only source for "where are people dropping off" /
- * per-page performance questions, since dashboard_daily_traffic only has
- * site-wide daily totals. external_account_id is the GA4 property ID —
+// GA4's sessionDefaultChannelGrouping has far more values than
+// dashboard_daily_traffic.channel's 4-value enum ('organic' | 'paid_social'
+// | 'paid_search' | 'direct') — collapse to the closest bucket so the
+// Overview donut and Analytics channel filter (which only knows those 4
+// values) stay usable instead of silently dropping "Referral"/"Email"/etc.
+// traffic into an unfilterable "Other".
+function mapGa4Channel(raw: string): string {
+  const normalized = (raw || "").toLowerCase();
+  if (normalized.includes("direct")) return "direct";
+  if (normalized.includes("paid social")) return "paid_social";
+  if (normalized.includes("paid search") || normalized.includes("paid video") || normalized.includes("paid other") || normalized === "display") {
+    return "paid_search";
+  }
+  return "organic";
+}
+
+/** GA4 page-level engagement (dashboard_ga4_pages) and site-wide daily
+ * sessions by channel (dashboard_daily_traffic) — the latter is what the
+ * Overview tab's Total Sessions metric, trend chart, and traffic-source
+ * donut actually read. external_account_id is the GA4 property ID —
  * accepts either the bare numeric ID (e.g. from someone pasting just the
  * number off the connect link, which is the easy mistake to make) or the
  * full "properties/123456789" form the API actually needs. */
@@ -208,32 +224,33 @@ export async function syncGa4(integration: IntegrationRow, db: SupabaseClient) {
     ? integration.external_account_id
     : `properties/${integration.external_account_id}`;
 
-  const res = await fetch(
-    `https://analyticsdata.googleapis.com/v1beta/${propertyId}:runReport`,
-    {
+  const runReport = async (body: unknown) => {
+    const res = await fetch(`https://analyticsdata.googleapis.com/v1beta/${propertyId}:runReport`, {
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
-        dimensions: [{ name: "date" }, { name: "pagePath" }],
-        metrics: [
-          { name: "sessions" },
-          { name: "engagedSessions" },
-          { name: "bounceRate" },
-          { name: "userEngagementDuration" },
-          { name: "screenPageViews" },
-        ],
-        orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
-        limit: 500,
-      }),
-    }
-  );
-  if (!res.ok) throw new Error(`GA4 runReport failed: ${await res.text()}`);
-  const { rows } = (await res.json()) as {
-    rows?: { dimensionValues: { value: string }[]; metricValues: { value: string }[] }[];
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) throw new Error(`GA4 runReport failed: ${await res.text()}`);
+    return (await res.json()) as {
+      rows?: { dimensionValues: { value: string }[]; metricValues: { value: string }[] }[];
+    };
   };
 
-  const upserts = (rows ?? []).map((r) => {
+  const pagesReport = await runReport({
+    dateRanges: [{ startDate: "7daysAgo", endDate: "today" }],
+    dimensions: [{ name: "date" }, { name: "pagePath" }],
+    metrics: [
+      { name: "sessions" },
+      { name: "engagedSessions" },
+      { name: "bounceRate" },
+      { name: "userEngagementDuration" },
+      { name: "screenPageViews" },
+    ],
+    orderBys: [{ metric: { metricName: "sessions" }, desc: true }],
+    limit: 500,
+  });
+
+  const pageUpserts = (pagesReport.rows ?? []).map((r) => {
     const [rawDate, pagePath] = r.dimensionValues.map((d) => d.value);
     const [sessions, engagedSessions, bounceRate, engagementDuration, pageViews] = r.metricValues.map((m) => Number(m.value));
     // GA4 returns date dimensions as "YYYYMMDD" — reshape to a Postgres date.
@@ -249,9 +266,50 @@ export async function syncGa4(integration: IntegrationRow, db: SupabaseClient) {
       page_views: Math.round(pageViews || 0),
     };
   });
-  if (upserts.length === 0) return;
-  const { error } = await db.from("dashboard_ga4_pages").upsert(upserts, { onConflict: "client_id,date,page_path" });
-  if (error) throw error;
+  if (pageUpserts.length > 0) {
+    const { error } = await db.from("dashboard_ga4_pages").upsert(pageUpserts, { onConflict: "client_id,date,page_path" });
+    if (error) throw error;
+  }
+
+  // 180 days back to match useOverviewData's fetch window (it needs a full
+  // prior period behind every range, including the 90d option, to compute
+  // period-over-period deltas).
+  const trafficReport = await runReport({
+    dateRanges: [{ startDate: "180daysAgo", endDate: "today" }],
+    dimensions: [{ name: "date" }, { name: "sessionDefaultChannelGrouping" }],
+    metrics: [{ name: "sessions" }, { name: "conversions" }],
+    limit: 2000,
+  });
+
+  // Multiple GA4 channel groups can map to the same app-level bucket (e.g.
+  // "Organic Search" and "Organic Social" both -> "organic"), so sum them
+  // per date+channel before upserting — the unique (client_id, date,
+  // channel) constraint would otherwise reject the second row for a day.
+  const trafficByKey = new Map<string, { client_id: string; date: string; channel: string; sessions: number; conversions: number }>();
+  for (const r of trafficReport.rows ?? []) {
+    const [rawDate, channelGroup] = r.dimensionValues.map((d) => d.value);
+    const [sessions, conversions] = r.metricValues.map((m) => Number(m.value));
+    const date = `${rawDate.slice(0, 4)}-${rawDate.slice(4, 6)}-${rawDate.slice(6, 8)}`;
+    const channel = mapGa4Channel(channelGroup);
+    const key = `${date}|${channel}`;
+    const existing = trafficByKey.get(key);
+    if (existing) {
+      existing.sessions += Math.round(sessions || 0);
+      existing.conversions += Math.round(conversions || 0);
+    } else {
+      trafficByKey.set(key, {
+        client_id: integration.client_id,
+        date,
+        channel,
+        sessions: Math.round(sessions || 0),
+        conversions: Math.round(conversions || 0),
+      });
+    }
+  }
+  if (trafficByKey.size > 0) {
+    const { error } = await db.from("dashboard_daily_traffic").upsert([...trafficByKey.values()], { onConflict: "client_id,date,channel" });
+    if (error) throw error;
+  }
 }
 
 /** Daily order count + revenue from Shopify's Orders API, upserted into
