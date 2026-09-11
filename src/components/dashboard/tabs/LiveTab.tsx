@@ -8,6 +8,15 @@ import type { TabDataProps, Visitor } from "../types";
 import { useLiveVisitors } from "@/lib/dashboard-data";
 import { humanizePagePath } from "@/lib/page-labels";
 
+const LOCATION_FALLBACK = "Location not shared";
+
+/** Real visitors whose browser declined the geolocation prompt (the common
+ * case — see docs/tracking-snippet.js) come through with an empty string,
+ * which would otherwise render as a blank label instead of an empty state. */
+function locationLabel(location: string): string {
+  return location.trim() || LOCATION_FALLBACK;
+}
+
 export function LiveTab({ configured, clientId, clientLoading }: TabDataProps) {
   const [demoVisitors, setDemoVisitors] = useState<Visitor[]>(() =>
     Array.from({ length: 6 }, () => makeVisitor(Math.floor(Math.random() * 90)))
@@ -64,7 +73,8 @@ export function LiveTab({ configured, clientId, clientLoading }: TabDataProps) {
   const locationCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     visitors.forEach((v) => {
-      counts[v.location] = (counts[v.location] || 0) + 1;
+      const label = locationLabel(v.location);
+      counts[label] = (counts[label] || 0) + 1;
     });
     return Object.entries(counts)
       .map(([location, count]) => ({ location, count }))
@@ -146,7 +156,7 @@ export function LiveTab({ configured, clientId, clientLoading }: TabDataProps) {
                 <div className="live-visitor-info">
                   <div className="live-visitor-page">{humanizePagePath(v.page)}</div>
                   <div className="live-visitor-meta">
-                    {v.location} · {v.device}
+                    {locationLabel(v.location)} · {v.device}
                   </div>
                 </div>
                 <div className="live-visitor-time mono">{formatDuration(v.enteredAt)}</div>

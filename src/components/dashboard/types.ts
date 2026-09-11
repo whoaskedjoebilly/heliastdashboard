@@ -58,9 +58,15 @@ export interface LiveLocation {
 export interface Visitor {
   id: string;
   page: string;
+  /** Empty string when the visitor didn't grant geolocation (common — it's
+   * an optional browser prompt most people decline). Display code should
+   * show a fallback label rather than an empty string. */
   location: string;
-  lat: number;
-  lng: number;
+  /** Null when geolocation wasn't granted — NOT 0/0, which is a real
+   * coordinate (off the coast of West Africa) and would otherwise show up
+   * on the globe as a phantom visitor pin there. */
+  lat: number | null;
+  lng: number | null;
   device: string;
   enteredAt: number;
 }

@@ -65,6 +65,7 @@ export function Globe({ visitors }: GlobeProps) {
 
   const dots = useMemo(() => {
     return visitors
+      .filter((v): v is typeof v & { lat: number; lng: number } => v.lat != null && v.lng != null)
       .map((v) => {
         const p = projectToGlobe(v.lat, v.lng, lambda0, GLOBE_PHI0, GLOBE_R);
         return { ...p, id: v.id, location: v.location };

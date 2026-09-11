@@ -641,8 +641,8 @@ export function useLiveVisitors(clientId: string | null) {
       id: String(row.id),
       page: String(row.page ?? ""),
       location: String(row.location ?? ""),
-      lat: Number(row.lat ?? 0),
-      lng: Number(row.lng ?? 0),
+      lat: row.lat != null ? Number(row.lat) : null,
+      lng: row.lng != null ? Number(row.lng) : null,
       device: String(row.device ?? ""),
       enteredAt: new Date(String(row.entered_at)).getTime(),
     });
