@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Panel } from "../ui/Panel";
 import { ReportBuilder } from "../ReportBuilder";
+import { markdownComponents } from "../athena-markdown";
 import { DATASETS, type ReportConfig } from "@/lib/reports/registry";
 import type { CustomReport, SavedReport } from "@/lib/dashboard-data";
 
@@ -138,7 +139,9 @@ export function AnalyticsTab({
             Asked: &ldquo;{selectedAnswerReport.prompt}&rdquo; · {new Date(selectedAnswerReport.created_at).toLocaleString()}
           </p>
           <div className="report-markdown">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedAnswerReport.content}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents()}>
+              {selectedAnswerReport.content}
+            </ReactMarkdown>
           </div>
         </Panel>
       )}
