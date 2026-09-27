@@ -5,6 +5,7 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { createAtmosphere, sunDirection, sunlight, MOON_DIR, type AtmosphereState } from "./atmosphere";
+import { createInterior } from "./interior";
 import { createJet } from "./jet";
 import { SHOTS, type Shot } from "./shots";
 
@@ -38,6 +39,7 @@ type ViewState = {
   shiftY: number;
   exposure: number;
   cloudSpeed: number;
+  interior: number;
 };
 
 const viewState = (): ViewState => ({
@@ -52,6 +54,7 @@ const viewState = (): ViewState => ({
   shiftY: 0,
   exposure: 1,
   cloudSpeed: 30,
+  interior: 0,
 });
 
 /**
@@ -99,6 +102,10 @@ export class JetScene {
   private goal = viewState();
   private cur = viewState();
   private tmpVec = new THREE.Vector3();
+  private tmpVec2 = new THREE.Vector3();
+  private tmpVec3 = new THREE.Vector3();
+  private tmpColor2 = new THREE.Color();
+  private interior = createInterior();
   private tmpColor = new THREE.Color();
   private moonColor = new THREE.Color(0.55, 0.65, 0.9);
 
@@ -157,7 +164,7 @@ export class JetScene {
     // Rim light from the true sun (or moon) direction
     this.scene.add(this.sun, this.sun.target, this.bounce);
 
-    this.jetRig.add(this.jet.group);
+    this.jetRig.add(this.jet.group, this.interior.group);
     this.scene.add(this.jetRig);
 
     this.applyShot(0, 0);
@@ -169,7 +176,16 @@ export class JetScene {
     const b: Shot = SHOTS[Math.max(0, Math.min(SHOTS.length - 1, from + 1))];
     const g = this.goal;
     const mobile = this.width / this.height < 0.85;
-    g.camera.lerpVectors(a.camera, b.camera, t);
+    if (b.via) {
+      // Quadratic Bézier: leaves along a → via, arrives at b
+      const u = 1 - t;
+      g.camera
+        .copy(a.camera)
+        .multiplyScalar(u * u)
+        .addScaledVector(b.via, 2 * u * t)
+        .addScaledVector(b.camera, t * t);
+    } else g.camera.lerpVectors(a.camera, b.camera, t);
+    g.interior = THREE.MathUtils.lerp(a.interior ?? 0, b.interior ?? 0, t);
     g.target.lerpVectors(a.target, b.target, t);
     g.up.lerpVectors(a.up, b.up, t).normalize();
     g.jetPos.lerpVectors(a.jetPosition, b.jetPosition, t);
@@ -196,6 +212,7 @@ export class JetScene {
     c.shiftY = g.shiftY;
     c.exposure = g.exposure;
     c.cloudSpeed = g.cloudSpeed;
+    c.interior = g.interior;
   }
 
   setChapter(value: number) {
@@ -304,8 +321,13 @@ export class JetScene {
     const lambda = rm ? 60 : 6;
     const f = 1 - Math.exp(-lambda * dt);
     const fSlow = 1 - Math.exp(-lambda * 0.6 * dt);
-    c.camera.lerp(g.camera, f);
-    c.target.lerp(g.target, f);
+    // Near the cabin the camera follows its path exactly (the chapter value is already
+    // smoothed) so it can never cut a corner through the fuselage
+    const inside = Math.max(g.interior, c.interior) > 0.001;
+    const fCam = inside ? 1 : f;
+    c.interior = inside ? g.interior : damp(c.interior, g.interior, lambda, dt);
+    c.camera.lerp(g.camera, fCam);
+    c.target.lerp(g.target, fCam);
     c.up.lerp(g.up, f).normalize();
     c.jetPos.lerp(g.jetPos, fSlow);
     c.jetRot.slerp(g.jetRot, fSlow);
@@ -320,25 +342,6 @@ export class JetScene {
     if (this.introStarted && this.intro < 1) this.intro = Math.min(1, this.intro + dt / (rm ? 0.01 : 3.4));
     const introE = 1 - Math.pow(1 - this.intro, 4);
 
-    // Camera
-    const pull = 1 - introE;
-    const aspect = this.width / this.height;
-    const fit = aspect < 1 ? THREE.MathUtils.clamp(1.25 / aspect, 1, 2.3) : 1;
-    this.tmpVec.subVectors(c.camera, c.target).multiplyScalar(fit * (1 + pull * 0.9));
-    this.tmpVec.y -= pull * 3.5;
-    this.pointerSmooth.lerp(this.pointer, 1 - Math.exp(-2.5 * dt));
-    const parallax = rm ? 0 : 0.35;
-    this.camera.position.copy(c.target).add(this.tmpVec);
-    this.camera.up.copy(c.up);
-    this.camera.lookAt(c.target);
-    this.camera.translateX(this.pointerSmooth.x * parallax);
-    this.camera.translateY(-this.pointerSmooth.y * parallax * 0.6);
-    this.camera.fov = c.fov;
-    const w = this.width;
-    const h = this.height;
-    this.camera.setViewOffset(w, h, -c.shiftX * w, c.shiftY * h, w, h);
-    this.camera.updateProjectionMatrix();
-
     // Aircraft: gentle float in the air mass
     this.jetRig.position.copy(c.jetPos);
     this.jetRig.quaternion.copy(c.jetRot);
@@ -347,6 +350,45 @@ export class JetScene {
       this.jetRig.rotateX(Math.sin(time * 0.4) * 0.012);
       this.jetRig.rotateZ(Math.sin(time * 0.5 + 1) * 0.008);
     }
+    this.jetRig.updateMatrixWorld();
+
+    // Camera
+    const inCabin = c.interior;
+    const pull = (1 - introE) * (1 - inCabin);
+    const aspect = this.width / this.height;
+    const fitOut = aspect < 1 ? THREE.MathUtils.clamp(1.25 / aspect, 1, 2.3) : 1;
+    const fit = THREE.MathUtils.lerp(fitOut, 1, inCabin);
+    this.tmpVec.subVectors(c.camera, c.target).multiplyScalar(fit * (1 + pull * 0.9));
+    this.tmpVec.y -= pull * 3.5;
+    this.pointerSmooth.lerp(this.pointer, 1 - Math.exp(-2.5 * dt));
+    const parallax = rm ? 0 : THREE.MathUtils.lerp(0.35, 0.025, inCabin);
+    const camPos = this.tmpVec2.copy(c.target).add(this.tmpVec);
+    const camTarget = this.tmpVec3.copy(c.target);
+    if (inCabin > 0) {
+      // Inside, the camera rides with the aircraft
+      camPos.lerp(this.jetRig.localToWorld(camPos.clone()), inCabin);
+      camTarget.lerp(this.jetRig.localToWorld(camTarget.clone()), inCabin);
+    }
+    this.camera.position.copy(camPos);
+    this.camera.up.copy(c.up);
+    this.camera.lookAt(camTarget);
+    this.camera.translateX(this.pointerSmooth.x * parallax);
+    this.camera.translateY(-this.pointerSmooth.y * parallax * 0.6);
+    // Portrait screens widen the lens inside instead of backing through the wall
+    this.camera.fov = c.fov * (aspect < 1 ? THREE.MathUtils.lerp(1, 1.45, inCabin) : 1);
+    this.camera.near = THREE.MathUtils.lerp(0.1, 0.008, Math.min(1, inCabin * 4));
+    const w = this.width;
+    const h = this.height;
+    this.camera.setViewOffset(w, h, -c.shiftX * w, c.shiftY * h, w, h);
+    this.camera.updateProjectionMatrix();
+
+    // Cabin interior: only drawn while the camera is in or near it
+    this.interior.setShade(0.16 + 0.84 * introE);
+    const nearCabin = inCabin > 0.001 || this.camera.position.distanceTo(this.jetRig.position) < 3;
+    const sunNow = sunlight(c.atmo.sunElevation, this.tmpColor2);
+    this.interior.update(this.tmpColor2, sunNow, this.atmosphere.uniforms.uNight.value, nearCabin);
+    this.ao.updateGtaoMaterial({ radius: THREE.MathUtils.lerp(0.45, 0.05, inCabin) });
+
     this.jet.update(time, dt);
 
     // Atmosphere
@@ -371,8 +413,14 @@ export class JetScene {
     this.bounce.color.setRGB(0.55, 0.68, 0.95).multiplyScalar(0.5 + 0.5 * sunAmount);
     this.bounce.groundColor.copy(this.tmpColor).lerp(this.moonColor, night).multiplyScalar(0.25 + 0.75 * sunAmount);
     this.bounce.intensity = THREE.MathUtils.lerp(0.25, 1.1, sunAmount);
+    // Unshadowed fills would light the cabin as if it had no walls: fade them inside
+    const cabinDim = 1 - 0.85 * c.interior;
+    this.bounce.intensity *= cabinDim;
+    this.sun.intensity *= cabinDim;
+    this.scene.environmentIntensity *= 1 - 0.35 * c.interior;
     this.renderer.toneMappingExposure = c.exposure;
 
+    u.uJetInv.value.copy(this.jetRig.matrixWorld).invert();
     this.updateEnvironment();
 
     // Sky + clouds into the reduced-resolution background target, then the aircraft on top
@@ -387,6 +435,7 @@ export class JetScene {
     cancelAnimationFrame(this.raf);
     this.timer.dispose();
     this.jet.dispose();
+    this.interior.dispose();
     this.atmosphere.dispose();
     this.skyTarget.dispose();
     this.composer.dispose();

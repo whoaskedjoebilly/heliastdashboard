@@ -7,7 +7,7 @@ import "./experience.css";
 
 const pad = (n: number) => String(n).padStart(2, "0");
 /** Which side each chapter's copy sits on, so a soft shade can keep it legible over the aircraft. */
-const COPY_SIDE = ["bottom", "left", "right", "left", "left", "right", "bottom"];
+const COPY_SIDE = ["bottom", "left", "left", "right", "left", "left", "right", "bottom"];
 /** Stagger index for the reveal animation. */
 const delay = (n: number) => ({ "--d": n }) as CSSProperties;
 
@@ -90,6 +90,8 @@ export function Experience() {
           return;
         }
         sceneRef.current = scene;
+        // Development aid: inspect the live scene from the browser console
+        if (process.env.NODE_ENV !== "production") (window as unknown as { __xp?: JetScene }).__xp = scene;
         onResize();
         scene.warmup();
         scene.start();
@@ -259,12 +261,30 @@ export function Experience() {
           </div>
         </section>
 
-        {/* 1 — Design */}
+        {/* 1 — The aircraft, seen from outside for the first time */}
         <section data-chapter={1} className={cls(1, "xp-left")}>
           <div className="xp-pin">
             <div className="xp-block">
               <p className="xp-eyebrow xp-rise" style={delay(0)}>
-                01 — Design
+                01 — The aircraft
+              </p>
+              <h2 className="xp-title xp-rise" style={delay(1)}>
+                Meet the <em>{BRAND.aircraft}.</em>
+              </h2>
+              <p className="xp-body xp-rise" style={delay(2)}>
+                A long-range cabin wrapped in a quiet, swept-wing airframe, built to carry sixteen guests between almost
+                any two cities on earth without stopping.
+              </p>
+            </div>
+          </div>
+        </section>
+
+        {/* 2 — Design */}
+        <section data-chapter={2} className={cls(2, "xp-left")}>
+          <div className="xp-pin">
+            <div className="xp-block">
+              <p className="xp-eyebrow xp-rise" style={delay(0)}>
+                02 — Design
               </p>
               <h2 className="xp-title xp-rise" style={delay(1)}>
                 One continuous <em>line.</em>
@@ -291,12 +311,12 @@ export function Experience() {
           </div>
         </section>
 
-        {/* 2 — Power */}
-        <section data-chapter={2} className={cls(2, "xp-right")}>
+        {/* 3 — Power */}
+        <section data-chapter={3} className={cls(3, "xp-right")}>
           <div className="xp-pin">
             <div className="xp-block">
               <p className="xp-eyebrow xp-rise" style={delay(0)}>
-                02 — Power
+                03 — Power
               </p>
               <h2 className="xp-title xp-rise" style={delay(1)}>
                 Quiet, <em>by design.</em>
@@ -319,12 +339,12 @@ export function Experience() {
           </div>
         </section>
 
-        {/* 3 — Cabin */}
-        <section data-chapter={3} className={cls(3, "xp-left")}>
+        {/* 4 — Cabin */}
+        <section data-chapter={4} className={cls(4, "xp-left")}>
           <div className="xp-pin">
             <div className="xp-block">
               <p className="xp-eyebrow xp-rise" style={delay(0)}>
-                03 — Cabin
+                04 — Cabin
               </p>
               <h2 className="xp-title xp-rise" style={delay(1)}>
                 Four rooms. <em>No compromises.</em>
@@ -351,31 +371,31 @@ export function Experience() {
           </div>
         </section>
 
-        {/* 4 — Performance */}
-        <section data-chapter={4} className={cls(4, "xp-left xp-specs")}>
+        {/* 5 — Performance */}
+        <section data-chapter={5} className={cls(5, "xp-left xp-specs")}>
           <div className="xp-pin">
             <div className="xp-block">
               <p className="xp-eyebrow xp-rise" style={delay(0)}>
-                04 — Performance
+                05 — Performance
               </p>
               <h2 className="xp-title xp-rise" style={delay(1)}>
                 Numbers that <em>shrink the map.</em>
               </h2>
               <div className="xp-stats xp-rise" style={delay(2)}>
                 {SPECS.map((s) => (
-                  <Stat key={s.label} spec={s} active={seen.has(4) && loaded} />
+                  <Stat key={s.label} spec={s} active={seen.has(5) && loaded} />
                 ))}
               </div>
             </div>
           </div>
         </section>
 
-        {/* 5 — Range */}
-        <section data-chapter={5} className={cls(5, "xp-right")}>
+        {/* 6 — Range */}
+        <section data-chapter={6} className={cls(6, "xp-right")}>
           <div className="xp-pin">
             <div className="xp-block">
               <p className="xp-eyebrow xp-rise" style={delay(0)}>
-                05 — Range
+                06 — Range
               </p>
               <h2 className="xp-title xp-rise" style={delay(1)}>
                 Anywhere, <em>nonstop.</em>
@@ -394,12 +414,12 @@ export function Experience() {
           </div>
         </section>
 
-        {/* 6 — Enquire */}
-        <section data-chapter={6} className={cls(6, "xp-final")} id="enquire">
+        {/* 7 — Enquire */}
+        <section data-chapter={7} className={cls(7, "xp-final")} id="enquire">
           <div className="xp-pin">
             <div className="xp-block xp-block--center">
               <p className="xp-eyebrow xp-rise" style={delay(0)}>
-                06 — Enquire
+                07 — Enquire
               </p>
               <h2 className="xp-display xp-rise" style={delay(1)}>
                 Your sky <em>awaits.</em>

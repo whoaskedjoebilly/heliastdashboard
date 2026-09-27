@@ -72,6 +72,8 @@ const fragmentShader = /* glsl */ `
   uniform vec3 uWind;
   uniform sampler3D uNoise;
   uniform float uSteps;
+  uniform mat4 uJetInv;
+  uniform float uCirrus;
 
   varying vec3 vWorldPosition;
   varying vec3 vBetaR;
@@ -134,6 +136,18 @@ const fragmentShader = /* glsl */ `
       col += sd * 90.0 * Fex * ozone() * step(-0.01, uSunDir.y);
     }
 
+    // High cirrus: streaky ice cloud far above, lit by the sun, only in the main view
+    if (disc && dir.y > 0.01 && uCirrus > 0.0) {
+      vec2 cp = dir.xz / dir.y * 2600.0 + uWind.xz * 0.35;
+      vec2 cq = vec2(cp.x * 0.00018, cp.y * 0.00055);
+      float n = texture(uNoise, vec3(cq, 0.63)).r * 0.65 + texture(uNoise, vec3(cq * 3.1, 0.21)).g * 0.35;
+      float cover = smoothstep(0.5, 0.82, n) * smoothstep(0.01, 0.2, dir.y) * uCirrus;
+      vec3 sunCol = vSunE * extinction(uSunDir) * ozone() * 0.04 * 0.12;
+      float fwd = hg(cosTheta, 0.6) * 4.0 * PI;
+      vec3 cirrusCol = sunCol * (0.6 + fwd) + col * 0.9;
+      col = mix(col, cirrusCol, cover * 0.55);
+    }
+
     // Night: deep blue base, stars and a moon
     if (uNight > 0.0) {
       float h = max(dir.y, 0.0);
@@ -154,6 +168,36 @@ const fragmentShader = /* glsl */ `
       }
     }
     return col;
+  }
+
+  /** Soft hit test of a ray against an ellipsoid given by centre, orthonormal axes and radii. */
+  float ellipsoidShadow(vec3 ro, vec3 rd, vec3 c, vec3 ax, vec3 ay, vec3 az, vec3 r) {
+    vec3 q = ro - c;
+    vec3 o = vec3(dot(q, ax), dot(q, ay), dot(q, az)) / r;
+    vec3 d = vec3(dot(rd, ax), dot(rd, ay), dot(rd, az)) / r;
+    float a = dot(d, d);
+    float b = dot(o, d);
+    float disc = b * b - a * (dot(o, o) - 1.0);
+    if (b > 0.0) return 0.0; // aircraft is behind the sample, not toward the sun
+    return smoothstep(0.0, 0.25 * a, disc);
+  }
+
+  /** How much of the sun the aircraft blocks as seen from world point p. */
+  float jetShadow(vec3 p, vec3 lightDir) {
+    vec3 lp = (uJetInv * vec4(p, 1.0)).xyz;
+    vec3 ld = normalize(mat3(uJetInv) * lightDir);
+    float s = ellipsoidShadow(lp, ld, vec3(0.0), vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), vec3(5.0, 0.62, 0.62));
+    // Swept wings as long flattened ellipsoids along each wing's span
+    vec3 spanR = normalize(vec3(-0.62, 0.05, 1.0));
+    vec3 chordR = normalize(cross(vec3(0, 1, 0), spanR));
+    s = max(s, ellipsoidShadow(lp, ld, vec3(-0.9, -0.2, 2.75), spanR, vec3(0, 1, 0), chordR, vec3(3.0, 0.15, 0.95)));
+    vec3 spanL = vec3(spanR.x, spanR.y, -spanR.z);
+    vec3 chordL = normalize(cross(vec3(0, 1, 0), spanL));
+    s = max(s, ellipsoidShadow(lp, ld, vec3(-0.9, -0.2, -2.75), spanL, vec3(0, 1, 0), chordL, vec3(3.0, 0.15, 0.95)));
+    // T-tail and fin
+    s = max(s, ellipsoidShadow(lp, ld, vec3(-4.9, 2.35, 0.0), vec3(0, 0, 1), vec3(0, 1, 0), vec3(1, 0, 0), vec3(2.0, 0.1, 0.55)));
+    s = max(s, ellipsoidShadow(lp, ld, vec3(-4.3, 1.3, 0.0), vec3(0, 1, 0), vec3(1, 0, 0), vec3(0, 0, 1), vec3(1.1, 0.9, 0.1)));
+    return s;
   }
 
   float remap(float v, float a, float b, float c, float d) {
@@ -238,6 +282,8 @@ const fragmentShader = /* glsl */ `
           float beer = exp(-od * sigma * 0.9) + 0.25 * exp(-od * sigma * 0.2);
           float powder = 1.0 - exp(-d * 12.0);
           vec3 direct = lightCol * beer * mix(1.0, powder, 0.6) * phase;
+          // The aircraft's own shadow on the cloud tops
+          direct *= 1.0 - 0.9 * jetShadow(p, lightDir);
           vec3 amb = mix(ambBot, ambTop, pow(h, 0.7));
           // Energy-conserving step integration (albedo ~1): radiance approaches the light it scatters
           float dT = exp(-d * sigma * stepLen);
@@ -275,6 +321,8 @@ export function createAtmosphere() {
     uWind: { value: new THREE.Vector3() },
     uNoise: { value: noise },
     uSteps: { value: 48 },
+    uJetInv: { value: new THREE.Matrix4() },
+    uCirrus: { value: 1 },
     uRayleigh: { value: 1.5 },
     uTurbidity: { value: 4 },
     uMie: { value: 0.005 },

@@ -8,12 +8,12 @@ export const BRAND = {
 
 export const NAV = [
   { label: "Aircraft", chapter: 1 },
-  { label: "Cabin", chapter: 3 },
-  { label: "Performance", chapter: 4 },
-  { label: "Range", chapter: 5 },
+  { label: "Cabin", chapter: 4 },
+  { label: "Performance", chapter: 5 },
+  { label: "Range", chapter: 6 },
 ];
 
-export const CHAPTER_NAMES = ["Arrival", "Design", "Power", "Cabin", "Performance", "Range", "Enquire"];
+export const CHAPTER_NAMES = ["Window seat", "The aircraft", "Design", "Power", "Cabin", "Performance", "Range", "Enquire"];
 
 export const SPECS = [
   { value: 7700, format: (n: number) => Math.round(n).toLocaleString("en-US"), unit: "nm", label: "Maximum range" },

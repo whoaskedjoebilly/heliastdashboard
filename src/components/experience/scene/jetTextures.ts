@@ -541,3 +541,76 @@ export function roughnessVariation() {
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
   return t;
 }
+
+/**
+ * Wing upper-surface markings: walkway outline, NO STEP stencils, fuel filler,
+ * and faint flow grime behind the spoilers.
+ */
+export function paintWingColor(mainStations: number, totalStations: number) {
+  const S = 2048;
+  const [cc, c] = canvas(S, S);
+  c.fillStyle = "#ffffff";
+  c.fillRect(0, 0, S, S);
+  const sSpan = (s: number) => (s * mainStations) / totalStations;
+  const px = (xc: number, upper = true) => loopU(xc, upper) * S;
+  const py = (s: number) => (1 - sSpan(s)) * S;
+
+  // Flow grime streaking aft from the spoiler hinge
+  let seed = 17;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 90; i++) {
+    const s0 = 0.18 + rand() * 0.45;
+    c.strokeStyle = `rgba(120,116,110,${0.04 + rand() * 0.06})`;
+    c.lineWidth = 1 + rand() * 3;
+    c.beginPath();
+    c.moveTo(px(0.62), py(s0));
+    c.lineTo(px(0.98), py(s0 + (rand() - 0.5) * 0.01));
+    c.stroke();
+  }
+
+  // Walkway: outlined area near the root with its label
+  c.strokeStyle = "rgba(55,57,62,0.85)";
+  c.lineWidth = 4;
+  const walk = [
+    [0.18, 0.02],
+    [0.55, 0.02],
+    [0.55, 0.13],
+    [0.18, 0.13],
+  ];
+  c.beginPath();
+  walk.forEach(([xc, s], i) => (i ? c.lineTo(px(xc), py(s)) : c.moveTo(px(xc), py(s))));
+  c.closePath();
+  c.stroke();
+
+  const label = (text: string, xc: number, s: number, size: number, color: string) => {
+    c.save();
+    c.translate(px(xc), py(s));
+    // text runs spanwise (canvas y), reading from the fuselage outward
+    c.rotate(-Math.PI / 2);
+    c.fillStyle = color;
+    c.font = `600 ${size}px "Helvetica Neue", Arial, sans-serif`;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText(text, 0, 0);
+    c.restore();
+  };
+  label("WALKWAY", 0.36, 0.075, 30, "rgba(55,57,62,0.85)");
+  for (const s of [0.24, 0.42, 0.58]) label("NO STEP", 0.68, s, 22, "rgba(55,57,62,0.7)");
+  label("NO STEP", 0.7, 0.8, 20, "rgba(55,57,62,0.7)");
+
+  // Fuel filler cap with its red warning ring
+  const fx = px(0.42);
+  const fy = py(0.74);
+  c.strokeStyle = "rgba(170,40,34,0.9)";
+  c.lineWidth = 5;
+  c.beginPath();
+  c.ellipse(fx, fy, 16, 22, 0, 0, Math.PI * 2);
+  c.stroke();
+  c.fillStyle = "rgba(150,152,156,1)";
+  c.beginPath();
+  c.ellipse(fx, fy, 9, 13, 0, 0, Math.PI * 2);
+  c.fill();
+  label("FUEL", 0.47, 0.74, 16, "rgba(170,40,34,0.9)");
+
+  return texture(cc, true);
+}

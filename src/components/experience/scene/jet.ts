@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { DecalGeometry } from "three/addons/geometries/DecalGeometry.js";
-import { orangePeel, paintEmblem, paintFuselage, paintNacelle, paintSpinner, paintTailSurface, paintWing, roughnessVariation } from "./jetTextures";
+import { orangePeel, paintEmblem, paintFuselage, paintNacelle, paintSpinner, paintTailSurface, paintWing, paintWingColor, roughnessVariation } from "./jetTextures";
 
 /**
  * Procedurally modelled long-range business jet.
@@ -8,9 +8,9 @@ import { orangePeel, paintEmblem, paintFuselage, paintNacelle, paintSpinner, pai
  * Units are roughly metres / 3 (fuselage is 10 units long).
  */
 
-const L = 10; // fuselage length
-const R = 0.62; // max fuselage radius
-const X_TAIL = -L / 2;
+export const L = 10; // fuselage length
+export const R = 0.62; // max fuselage radius
+export const X_TAIL = -L / 2;
 
 const smooth = (e0: number, e1: number, x: number) => {
   const t = THREE.MathUtils.clamp((x - e0) / (e1 - e0), 0, 1);
@@ -18,7 +18,7 @@ const smooth = (e0: number, e1: number, x: number) => {
 };
 
 /** Fuselage radius along normalised length t (0 = tail, 1 = nose). */
-function radiusAt(t: number) {
+export function radiusAt(t: number) {
   if (t >= 0.8) {
     const s = (t - 0.8) / 0.2;
     return R * Math.pow(Math.max(0, 1 - Math.pow(s, 2.1)), 0.58);
@@ -31,23 +31,23 @@ function radiusAt(t: number) {
 }
 
 /** Vertical offset of the fuselage centreline (tail upsweep + nose droop). */
-function centreAt(t: number) {
+export function centreAt(t: number) {
   let c = 0;
   if (t < 0.38) c += 0.5 * R * Math.pow((0.38 - t) / 0.38, 1.7);
   if (t > 0.84) c -= 0.1 * R * Math.pow((t - 0.84) / 0.16, 1.4);
   return c;
 }
 
-const Z_SQUASH = 0.97;
+export const Z_SQUASH = 0.97;
 
 /** Point on the fuselage skin. theta is measured from the top (0) towards starboard (+PI/2). */
-function hullPoint(t: number, theta: number, offset = 0, target = new THREE.Vector3()) {
+export function hullPoint(t: number, theta: number, offset = 0, target = new THREE.Vector3()) {
   const r = radiusAt(t) + offset;
   return target.set(X_TAIL + t * L, centreAt(t) + r * Math.cos(theta), r * Math.sin(theta) * Z_SQUASH);
 }
 
 /** Builds an indexed grid surface from a parametric function. */
-function gridSurface(
+export function gridSurface(
   nu: number,
   nv: number,
   fn: (u: number, v: number, target: THREE.Vector3) => void,
@@ -83,7 +83,7 @@ function gridSurface(
   return g;
 }
 
-function mergeGeometries(geos: THREE.BufferGeometry[]) {
+export function mergeGeometries(geos: THREE.BufferGeometry[]) {
   const positions: number[] = [];
   const normals: number[] = [];
   const indices: number[] = [];
@@ -268,7 +268,7 @@ function stabStations(finTop: Station): Station[] {
 /* Engines                                                             */
 /* ------------------------------------------------------------------ */
 
-function lathe(points: [number, number][], segments = 72) {
+export function lathe(points: [number, number][], segments = 72) {
   // points: [x along axis, radius]; lathe around Y then rotate so axis -> +X.
   // Lathe faces point outward only when the profile runs in +axis order.
   const ordered = points[0][0] > points[points.length - 1][0] ? [...points].reverse() : points;
@@ -441,7 +441,7 @@ function cockpitPanes() {
 }
 
 /** Cabin window positions on the hull, shared by the glass geometry and the painted gaskets. */
-function windowLayout() {
+export function windowLayout() {
   const out: { t: number; theta: number; dt: number; dTheta: number }[] = [];
   for (const side of [-1, 1]) {
     for (let i = 0; i < 9; i++) out.push({ t: 0.43 + i * 0.043, theta: side * 1.32, dt: 0.0118, dTheta: 0.135 });
@@ -464,9 +464,10 @@ function createMaterials() {
   const detailed = (bump: THREE.Texture | null, repeat: [number, number], map: THREE.Texture | null = null) => {
     const m = paint.clone();
     const n = peel.clone();
-    n.repeat.set(...repeat);
+    // Orange peel is millimetre-scale: tile it finely so it only breaks up reflections
+    n.repeat.set(repeat[0] * 8, repeat[1] * 8);
     m.clearcoatNormalMap = n;
-    m.clearcoatNormalScale = new THREE.Vector2(0.12, 0.12);
+    m.clearcoatNormalScale = new THREE.Vector2(0.06, 0.06);
     if (bump) {
       m.bumpMap = bump;
       m.bumpScale = 1.4;
@@ -485,7 +486,7 @@ function createMaterials() {
     paint: detailed(null, [4, 4]),
     fuselage: detailed(fus.bump, [7, 18], fus.map),
     fuselageTextures: [fus.map, fus.bump],
-    wing: detailed(paintWing(14, wingStationCount - 1), [10, 6]),
+    wing: detailed(paintWing(14, wingStationCount - 1), [10, 6], paintWingColor(14, wingStationCount - 1)),
     fin: detailed(paintTailSurface(0.7, 0.12, 0.97), [5, 5]),
     stab: detailed(paintTailSurface(0.7, 0.06, 0.94), [5, 3]),
     nacelle: detailed(paintNacelle(), [8, 3]),
@@ -896,6 +897,7 @@ export function createJet(): Jet {
       else v.dispose();
     }
     for (const m of [mats.wing, mats.fin, mats.stab, mats.nacelle]) m.bumpMap?.dispose();
+    mats.wing.map?.dispose();
     mats.emblem.map?.dispose();
   };
 
