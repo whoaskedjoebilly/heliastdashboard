@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { palette, type SkyPalette } from "./sky";
+import type { AtmosphereState } from "./atmosphere";
 
 /** One camera "shot" per story chapter. The scene eases between neighbours as you scroll. */
 export type Shot = {
@@ -13,8 +13,9 @@ export type Shot = {
   shiftY: number;
   jetPosition: THREE.Vector3;
   jetRotation: THREE.Quaternion;
-  sky: SkyPalette;
+  atmosphere: AtmosphereState;
   exposure: number;
+  /** Apparent ground speed of the cloud deck, world units per second. */
   cloudSpeed: number;
 };
 
@@ -22,14 +23,16 @@ const v = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 const q = (roll: number, yaw: number, pitch: number) =>
   new THREE.Quaternion().setFromEuler(new THREE.Euler(roll, yaw, pitch, "YZX"));
 const UP = v(0, 1, 0);
-
-const GOLDEN = palette("#0e1a2c", "#34506f", "#e9b07a", "#3a3a4a", "#ffc98a");
-const HIGH = palette("#07152b", "#1f4570", "#9fb8cf", "#46566b", "#ffe2b8");
-const DUSK = palette("#070b16", "#1c2742", "#c9825a", "#2a2533", "#ff9e62");
-const NIGHT = palette("#020308", "#060c1a", "#1d2a44", "#05070d", "#6d7fa6", 1);
+const atmo = (sunElevation: number, sunAzimuth: number, turbidity = 3, rayleigh = 1.4, coverage = 0.46): AtmosphereState => ({
+  sunElevation,
+  sunAzimuth,
+  turbidity,
+  rayleigh,
+  coverage,
+});
 
 export const SHOTS: Shot[] = [
-  // 0 — Hero: three-quarter front, sunset
+  // 0 — Hero: three-quarter front, sun just off frame right at golden hour
   {
     camera: v(7.2, 1.3, 11.5),
     target: v(-0.2, 0.2, 0),
@@ -39,9 +42,9 @@ export const SHOTS: Shot[] = [
     shiftY: -0.04,
     jetPosition: v(0, 0, 0),
     jetRotation: q(0.03, -0.12, 0.015),
-    sky: GOLDEN,
+    atmosphere: atmo(4.5, 82, 8, 2.4),
     exposure: 1.0,
-    cloudSpeed: 14,
+    cloudSpeed: 34,
   },
   // 1 — Design: pure side profile
   {
@@ -53,9 +56,9 @@ export const SHOTS: Shot[] = [
     shiftY: 0,
     jetPosition: v(0, 0, 0),
     jetRotation: q(0, 0, 0),
-    sky: GOLDEN,
+    atmosphere: atmo(8, 62, 6, 2),
     exposure: 1.0,
-    cloudSpeed: 14,
+    cloudSpeed: 34,
   },
   // 2 — Engines: close on the polished inlet
   {
@@ -67,9 +70,9 @@ export const SHOTS: Shot[] = [
     shiftY: 0,
     jetPosition: v(0, 0, 0),
     jetRotation: q(0, 0, 0),
-    sky: HIGH,
-    exposure: 1.05,
-    cloudSpeed: 18,
+    atmosphere: atmo(22, 55, 3, 1.3),
+    exposure: 0.95,
+    cloudSpeed: 40,
   },
   // 3 — Cabin: along the window line
   {
@@ -81,13 +84,13 @@ export const SHOTS: Shot[] = [
     shiftY: 0,
     jetPosition: v(0, 0, 0),
     jetRotation: q(-0.04, 0.06, 0),
-    sky: HIGH,
-    exposure: 1.05,
-    cloudSpeed: 18,
+    atmosphere: atmo(26, 60, 3, 1.3),
+    exposure: 0.95,
+    cloudSpeed: 40,
   },
   // 4 — Specifications: plan view over the cloud deck
   {
-    camera: v(0.001, 25, 0),
+    camera: v(0.001, 26, 0),
     target: v(0, 0, 0),
     up: v(1, 0, 0),
     fov: 34,
@@ -95,11 +98,11 @@ export const SHOTS: Shot[] = [
     shiftY: 0,
     jetPosition: v(0, 0, 0),
     jetRotation: q(0, 0, 0),
-    sky: HIGH,
-    exposure: 1.0,
-    cloudSpeed: 20,
+    atmosphere: atmo(34, 70, 3, 1.3, 0.36),
+    exposure: 0.9,
+    cloudSpeed: 44,
   },
-  // 5 — Range: chase view, banking toward the sun
+  // 5 — Range: chase view, banking toward a setting sun
   {
     camera: v(-15, 1.2, 7.5),
     target: v(4, 1.2, -2.5),
@@ -109,9 +112,9 @@ export const SHOTS: Shot[] = [
     shiftY: 0,
     jetPosition: v(0, 0.4, 0),
     jetRotation: q(-0.32, 0.18, 0.04),
-    sky: DUSK,
+    atmosphere: atmo(2.2, 16, 10, 3),
     exposure: 1.0,
-    cloudSpeed: 16,
+    cloudSpeed: 36,
   },
   // 6 — Enquire: aircraft recedes into the night
   {
@@ -123,8 +126,8 @@ export const SHOTS: Shot[] = [
     shiftY: 0.08,
     jetPosition: v(70, 9, -38),
     jetRotation: q(-0.12, 0.42, 0.08),
-    sky: NIGHT,
-    exposure: 0.95,
-    cloudSpeed: 10,
+    atmosphere: atmo(-9, 10, 3, 1.4, 0.44),
+    exposure: 1.25,
+    cloudSpeed: 24,
   },
 ];
