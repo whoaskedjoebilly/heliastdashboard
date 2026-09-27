@@ -9,10 +9,10 @@ html.xp-locked body {
 
 .xp {
   --ink: #f4f1ea;
-  --ink-2: rgba(244, 241, 234, 0.72);
-  --ink-3: rgba(244, 241, 234, 0.46);
+  --ink-2: rgba(246, 244, 239, 0.9);
+  --ink-3: rgba(246, 244, 239, 0.66);
   --line: rgba(244, 241, 234, 0.18);
-  --gold: #c9a878;
+  --gold: #dcbd8c;
   --bg: #05070b;
   --serif: var(--font-xp-serif), "Times New Roman", serif;
   --sans: var(--font-geist-sans), "Helvetica Neue", Arial, sans-serif;
@@ -94,16 +94,22 @@ html.xp-locked body {
 }
 
 .xp-shade::before {
-  background: linear-gradient(to right, rgba(5, 7, 11, 0.62), rgba(5, 7, 11, 0.28) 32%, transparent 50%);
+  background: linear-gradient(to right, rgba(5, 7, 11, 0.72), rgba(5, 7, 11, 0.4) 34%, transparent 58%);
 }
 
 .xp-shade::after {
-  background: linear-gradient(to left, rgba(5, 7, 11, 0.62), rgba(5, 7, 11, 0.28) 32%, transparent 50%);
+  background: linear-gradient(to left, rgba(5, 7, 11, 0.72), rgba(5, 7, 11, 0.4) 34%, transparent 58%);
 }
 
 .xp-shade[data-side="left"]::before,
 .xp-shade[data-side="right"]::after {
   opacity: 1;
+}
+
+/* Hero and finale copy sit low on the screen: shade from the bottom up */
+.xp-shade[data-side="bottom"] {
+  background: linear-gradient(to top, rgba(5, 7, 11, 0.72), rgba(5, 7, 11, 0.3) 40%, transparent 62%);
+  transition: opacity 1.2s var(--ease);
 }
 
 .xp-grain {
@@ -394,6 +400,17 @@ html.xp-locked body {
   max-width: 480px;
 }
 
+/* Frosted panel behind chapter copy keeps it legible over bright sky and paint */
+.xp-block:not(.xp-block--center) {
+  position: relative;
+  max-width: 520px;
+  padding: 40px 40px 36px;
+  background: rgba(8, 11, 16, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  -webkit-backdrop-filter: blur(18px) saturate(120%);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
 .xp-specs .xp-block {
   max-width: 560px;
 }
@@ -436,8 +453,10 @@ html.xp-locked body {
 }
 
 .xp-eyebrow {
-  font-size: 11px;
-  letter-spacing: 0.28em;
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.26em;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.45);
   text-transform: uppercase;
   color: var(--ink-2);
   margin: 0 0 28px;
@@ -461,6 +480,7 @@ html.xp-locked body {
 .xp-title {
   font-family: var(--serif);
   font-weight: 400;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.35);
   letter-spacing: -0.02em;
   margin: 0;
   text-wrap: balance;
@@ -484,9 +504,10 @@ html.xp-locked body {
 
 .xp-lede,
 .xp-body {
-  font-size: clamp(15px, 1.12vw, 17px);
-  line-height: 1.7;
+  font-size: clamp(16px, 1.15vw, 18px);
+  line-height: 1.65;
   color: var(--ink-2);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.35), 0 2px 16px rgba(0, 0, 0, 0.4);
   margin: 28px 0 0;
   max-width: 42ch;
 }
@@ -504,8 +525,9 @@ html.xp-locked body {
 }
 
 .xp-meta dt {
-  font-size: 10px;
-  letter-spacing: 0.24em;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--ink-3);
   margin-bottom: 8px;
@@ -642,8 +664,9 @@ html.xp-locked body {
 
 .xp-stat__label {
   margin-top: 12px;
-  font-size: 10px;
-  letter-spacing: 0.24em;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--ink-2);
 }
@@ -715,8 +738,9 @@ html.xp-locked body {
 }
 
 .xp-form label span {
-  font-size: 10px;
-  letter-spacing: 0.24em;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
@@ -760,8 +784,9 @@ html.xp-locked body {
   gap: 16px;
   flex-wrap: wrap;
   padding: 120px 0 32px;
-  font-size: 10px;
-  letter-spacing: 0.24em;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--ink-3);
 }
@@ -834,6 +859,11 @@ html.xp-locked body {
 
   .xp-block {
     position: relative;
+  }
+
+  .xp-block:not(.xp-block--center) {
+    padding: 26px 22px 24px;
+    max-width: none;
   }
 
   .xp-chapter:not(.xp-hero):not(.xp-final) .xp-block::before {

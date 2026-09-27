@@ -1,4 +1,9 @@
 import * as THREE from "three";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { GTAOPass } from "three/addons/postprocessing/GTAOPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { createAtmosphere, sunDirection, sunlight, MOON_DIR, type AtmosphereState } from "./atmosphere";
 import { createJet } from "./jet";
 import { SHOTS, type Shot } from "./shots";
@@ -61,6 +66,9 @@ export class JetScene {
   private jetRig = new THREE.Group();
   private atmosphere = createAtmosphere();
   private skyTarget: THREE.WebGLRenderTarget;
+  private composer: EffectComposer;
+  private ao: GTAOPass;
+  private bloom: UnrealBloomPass;
   private cubeTarget = new THREE.WebGLCubeRenderTarget(128, { type: THREE.HalfFloatType });
   private cubeCamera: THREE.CubeCamera;
   private pmrem: THREE.PMREMGenerator;
@@ -114,6 +122,20 @@ export class JetScene {
       magFilter: THREE.LinearFilter,
     });
     this.scene.background = this.skyTarget.texture;
+
+    // Post: MSAA HDR buffer → ambient occlusion → lens bloom → tone map
+    this.composer = new EffectComposer(
+      this.renderer,
+      new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, samples: 4 }),
+    );
+    this.composer.addPass(new RenderPass(this.scene, this.camera));
+    this.ao = new GTAOPass(this.scene, this.camera, 2, 2);
+    this.ao.blendIntensity = 0.85;
+    this.ao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 2, thickness: 1.2, scale: 1.1, samples: 16 });
+    this.composer.addPass(this.ao);
+    this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.12, 0.35, 6);
+    this.composer.addPass(this.bloom);
+    this.composer.addPass(new OutputPass());
     this.cubeCamera = new THREE.CubeCamera(1, 1000, this.cubeTarget);
     this.pmrem = new THREE.PMREMGenerator(this.renderer);
 
@@ -200,6 +222,8 @@ export class JetScene {
     const dpr = Math.min(window.devicePixelRatio, width < 800 ? 1.5 : 2);
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(width, height, false);
+    this.composer.setPixelRatio(dpr);
+    this.composer.setSize(width, height);
     // Clouds are soft, so a reduced-resolution sky pass is indistinguishable and far cheaper
     this.applyQuality();
     this.camera.aspect = width / height;
@@ -224,6 +248,9 @@ export class JetScene {
     if (avg > 1 / 42 && this.quality > 0.55) {
       this.quality = Math.max(0.55, this.quality - 0.15);
       this.applyQuality();
+    } else if (avg > 1 / 42 && this.ao.enabled) {
+      // Last resort on very slow GPUs: drop ambient occlusion
+      this.ao.enabled = false;
     }
   }
 
@@ -333,7 +360,7 @@ export class JetScene {
     // Lighting follows the sky
     const sunAmount = sunlight(c.atmo.sunElevation, this.tmpColor);
     this.key.color.copy(this.tmpColor).lerp(this.moonColor, night);
-    this.key.intensity = THREE.MathUtils.lerp(0.5, 6.0, sunAmount);
+    this.key.intensity = THREE.MathUtils.lerp(0.5, 5.0, sunAmount);
     if (night > 0.5) this.sun.position.copy(MOON_DIR);
     else sunDirection(c.atmo.sunElevation, c.atmo.sunAzimuth, this.sun.position);
     this.sun.position.multiplyScalar(30).add(this.jetRig.position);
@@ -353,7 +380,7 @@ export class JetScene {
     this.renderer.setRenderTarget(this.skyTarget);
     this.renderer.render(this.atmosphere.scene, this.camera);
     this.renderer.setRenderTarget(null);
-    this.renderer.render(this.scene, this.camera);
+    this.composer.render(dt);
   }
 
   dispose() {
@@ -362,6 +389,7 @@ export class JetScene {
     this.jet.dispose();
     this.atmosphere.dispose();
     this.skyTarget.dispose();
+    this.composer.dispose();
     this.cubeTarget.dispose();
     this.envTarget?.dispose();
     this.pmrem.dispose();

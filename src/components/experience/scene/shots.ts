@@ -48,11 +48,11 @@ export const SHOTS: Shot[] = [
   },
   // 1 — Design: pure side profile
   {
-    camera: v(0.3, 0.45, 19),
+    camera: v(0.3, 0.45, 21),
     target: v(0, 0.35, 0),
     up: UP,
     fov: 30,
-    shiftX: 0.17,
+    shiftX: 0.23,
     shiftY: 0,
     jetPosition: v(0, 0, 0),
     jetRotation: q(0, 0, 0),
@@ -71,7 +71,7 @@ export const SHOTS: Shot[] = [
     jetPosition: v(0, 0, 0),
     jetRotation: q(0, 0, 0),
     atmosphere: atmo(22, 55, 3, 1.3),
-    exposure: 0.95,
+    exposure: 0.8,
     cloudSpeed: 40,
   },
   // 3 — Cabin: along the window line
@@ -85,7 +85,7 @@ export const SHOTS: Shot[] = [
     jetPosition: v(0, 0, 0),
     jetRotation: q(-0.04, 0.06, 0),
     atmosphere: atmo(26, 60, 3, 1.3),
-    exposure: 0.95,
+    exposure: 0.8,
     cloudSpeed: 40,
   },
   // 4 — Specifications: plan view over the cloud deck
@@ -94,12 +94,12 @@ export const SHOTS: Shot[] = [
     target: v(0, 0, 0),
     up: v(1, 0, 0),
     fov: 34,
-    shiftX: 0.16,
+    shiftX: 0.22,
     shiftY: 0,
     jetPosition: v(0, 0, 0),
     jetRotation: q(0, 0, 0),
     atmosphere: atmo(34, 70, 3, 1.3, 0.36),
-    exposure: 0.9,
+    exposure: 0.78,
     cloudSpeed: 44,
   },
   // 5 — Range: chase view, banking toward a setting sun

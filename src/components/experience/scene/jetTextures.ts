@@ -30,6 +30,8 @@ export type FuselageSpec = {
   length: number;
   radius: number;
   windows: { t: number; theta: number; dt: number; dTheta: number }[];
+  /** Cockpit panes as rounded rectangles (superellipse exponent n). */
+  panes: { t: number; theta: number; dt: number; dTheta: number; n: number }[];
 };
 
 export function paintFuselage(spec: FuselageSpec) {
@@ -133,6 +135,25 @@ export function paintFuselage(spec: FuselageSpec) {
     b.stroke();
   }
 
+  // Black rubber seals around the cockpit glazing
+  for (const p of spec.panes) {
+    c.strokeStyle = "rgba(28,29,32,0.95)";
+    c.lineWidth = 7;
+    c.beginPath();
+    for (let i = 0; i <= 96; i++) {
+      const a = (i / 96) * Math.PI * 2;
+      const ca = Math.cos(a);
+      const sa = Math.sin(a);
+      const sx = Math.sign(ca) * Math.abs(ca) ** (2 / p.n);
+      const sy = Math.sign(sa) * Math.abs(sa) ** (2 / p.n);
+      const px = x(p.theta + sy * p.dTheta * 1.05);
+      const py = y(p.t + sx * p.dt * 1.08);
+      if (i === 0) c.moveTo(px, py);
+      else c.lineTo(px, py);
+    }
+    c.stroke();
+  }
+
   // Soft contact shadow where the wing and fairing meet the belly
   for (const side of [1, -1]) {
     const cx = x(side * 2.05);
@@ -147,6 +168,109 @@ export function paintFuselage(spec: FuselageSpec) {
     c.fillRect(cx - 170, y(0.5) - 170, 340, 340);
     c.restore();
   }
+
+  /** Small painted text laid along the fuselage, upright from the given side. */
+  const stencil = (text: string, t: number, theta: number, heightUnits: number, color: string, weight = 600) => {
+    const side = theta >= 0 ? 1 : -1;
+    c.save();
+    c.translate(x(theta), y(t));
+    c.rotate(side > 0 ? -Math.PI / 2 : Math.PI / 2);
+    c.scale(1, pxU / pxV);
+    c.fillStyle = color;
+    c.font = `${weight} ${Math.max(6, Math.round(heightUnits * pxV))}px "Helvetica Neue", Arial, sans-serif`;
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    c.fillText(text, 0, 0);
+    c.restore();
+  };
+
+  // --- Weathering: what separates a real airframe from a render ---
+  const rand = (() => {
+    let seed = 42;
+    return () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  })();
+  // Engine exhaust soot along the tail cone sides
+  for (const side of [1, -1]) {
+    const cx = x(side * 1.45);
+    const g = c.createLinearGradient(0, y(0.16), 0, y(0.0));
+    g.addColorStop(0, "rgba(70,62,54,0)");
+    g.addColorStop(0.6, "rgba(70,62,54,0.10)");
+    g.addColorStop(1, "rgba(60,52,46,0.22)");
+    c.fillStyle = g;
+    c.save();
+    c.beginPath();
+    c.ellipse(cx, y(0.07), 0.55 * spec.radius * pxU, 0.1 * spec.length * pxV, 0, 0, Math.PI * 2);
+    c.clip();
+    c.fillRect(cx - 400, y(0.18), 800, y(0) - y(0.18));
+    c.restore();
+  }
+  // APU soot at the very tail
+  {
+    const g = c.createLinearGradient(0, y(0.05), 0, y(0));
+    g.addColorStop(0, "rgba(40,38,36,0)");
+    g.addColorStop(1, "rgba(40,38,36,0.35)");
+    c.fillStyle = g;
+    c.fillRect(0, y(0.05), W, y(0) - y(0.05));
+  }
+  // Belly grime: darker toward the keel, heaviest behind the gear bays
+  {
+    const g = c.createLinearGradient(x(2.2), 0, x(Math.PI), 0);
+    g.addColorStop(0, "rgba(90,86,80,0)");
+    g.addColorStop(1, "rgba(90,86,80,0.12)");
+    c.fillStyle = g;
+    c.fillRect(x(2.2), y(0.8), x(Math.PI) - x(2.2), y(0.12) - y(0.8));
+    const g2 = c.createLinearGradient(x(-Math.PI + 0.0001), 0, x(-2.2), 0);
+    g2.addColorStop(0, "rgba(90,86,80,0.12)");
+    g2.addColorStop(1, "rgba(90,86,80,0)");
+    c.fillStyle = g2;
+    c.fillRect(x(-Math.PI + 0.0001), y(0.8), x(-2.2) - x(-Math.PI + 0.0001), y(0.12) - y(0.8));
+  }
+  // Rain streaks trailing aft and down from windows, door and panels
+  c.lineCap = "round";
+  for (let i = 0; i < 160; i++) {
+    const side = rand() < 0.5 ? 1 : -1;
+    const t0 = 0.15 + rand() * 0.8;
+    const th0 = side * (1.2 + rand() * 0.9);
+    const len = 0.01 + rand() * 0.05;
+    c.strokeStyle = `rgba(110,106,100,${0.03 + rand() * 0.05})`;
+    c.lineWidth = 0.8 + rand() * 1.6;
+    c.beginPath();
+    c.moveTo(x(th0), y(t0));
+    c.lineTo(x(th0 + side * len * 3), y(t0 - len));
+    c.stroke();
+  }
+  // Landing-gear doors on the belly
+  seam(2.2);
+  for (const ctx of [b, c]) {
+    rrect(ctx, 0.84, 0.905, Math.PI - 0.2, Math.PI - 0.001, 8);
+    rrect(ctx, 0.84, 0.905, -Math.PI + 0.001, -Math.PI + 0.2, 8);
+  }
+  // Static ports and AOA sensor bases near the nose
+  for (const side of [1, -1]) {
+    for (const [t, th] of [
+      [0.88, 1.62],
+      [0.873, 1.62],
+    ]) {
+      c.strokeStyle = "rgba(80,82,86,0.9)";
+      c.lineWidth = 2;
+      c.beginPath();
+      c.ellipse(x(side * th), y(t), 7, 5, 0, 0, Math.PI * 2);
+      c.stroke();
+      c.fillStyle = "rgba(20,20,22,0.9)";
+      c.beginPath();
+      c.arc(x(side * th), y(t), 1.6, 0, Math.PI * 2);
+      c.fill();
+    }
+  }
+  // Safety stencils
+  stencil("EMERGENCY EXIT", exitWin ? exitWin.t : 0.6, (exitWin ? exitWin.theta : 1.32) - 0.46, 0.028, "rgba(170,40,34,0.9)");
+  stencil("PULL TO OPEN", 0.808, -0.66, 0.018, "rgba(60,62,68,0.8)");
+  stencil("RESCUE", 0.808, -2.02, 0.022, "rgba(170,40,34,0.85)");
+  stencil("NO STEP", 0.2, 1.95, 0.018, "rgba(60,62,68,0.7)");
+  stencil("NO STEP", 0.2, -1.95, 0.018, "rgba(60,62,68,0.7)");
+  stencil("GROUND POWER", 0.25, 2.35, 0.016, "rgba(60,62,68,0.7)");
+  stencil("STATIC PORT — KEEP CLEAR", 0.876, 1.78, 0.012, "rgba(60,62,68,0.75)", 500);
+  stencil("STATIC PORT — KEEP CLEAR", 0.876, -1.78, 0.012, "rgba(60,62,68,0.75)", 500);
 
   // Registration on the aft fuselage, readable from both sides
   const reg = "N7HL";
@@ -361,4 +485,59 @@ export function paintEmblem(name: string) {
   const spaced = name.split("").join(String.fromCharCode(8202, 8202));
   c.fillText(spaced, cx, 820);
   return texture(cc, true);
+}
+
+/** Engine spinner: gloss black with the white spiral that shows the fan is turning. */
+export function paintSpinner() {
+  const S = 512;
+  const [cc, c] = canvas(S, S);
+  c.fillStyle = "#101114";
+  c.fillRect(0, 0, S, S);
+  // Lathe uv: u around the axis, v from tip (0) to base (1)
+  c.strokeStyle = "#f4f2ee";
+  c.lineWidth = 34;
+  c.lineCap = "round";
+  c.beginPath();
+  for (let i = 0; i <= 60; i++) {
+    const v = i / 60;
+    const u = 0.1 + v * 0.55;
+    const px = u * S;
+    const py = (1 - (0.08 + v * 0.85)) * S;
+    if (i === 0) c.moveTo(px, py);
+    else c.lineTo(px, py);
+  }
+  c.stroke();
+  return texture(cc, true);
+}
+
+/** Large, soft blotches of slightly varied gloss so reflections never look perfectly uniform. */
+export function roughnessVariation() {
+  const S = 512;
+  const [cc, c] = canvas(S, S);
+  c.fillStyle = "rgb(200,200,200)";
+  c.fillRect(0, 0, S, S);
+  let seed = 3;
+  const rand = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  for (let i = 0; i < 90; i++) {
+    const px = rand() * S;
+    const py = rand() * S;
+    const r = 30 + rand() * 120;
+    const v = Math.round(170 + rand() * 85);
+    for (const [ox, oy] of [
+      [0, 0],
+      [S, 0],
+      [-S, 0],
+      [0, S],
+      [0, -S],
+    ]) {
+      const g = c.createRadialGradient(px + ox, py + oy, 0, px + ox, py + oy, r);
+      g.addColorStop(0, `rgba(${v},${v},${v},0.35)`);
+      g.addColorStop(1, `rgba(${v},${v},${v},0)`);
+      c.fillStyle = g;
+      c.fillRect(px + ox - r, py + oy - r, r * 2, r * 2);
+    }
+  }
+  const t = texture(cc, false);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
 }
