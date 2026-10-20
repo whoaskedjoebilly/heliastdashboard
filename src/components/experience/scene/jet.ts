@@ -1,58 +1,19 @@
 import * as THREE from "three";
-import { DecalGeometry } from "three/addons/geometries/DecalGeometry.js";
-import { orangePeel, paintEmblem, paintFuselage, paintNacelle, paintSpinner, paintTailSurface, paintWing, paintWingColor, roughnessVariation } from "./jetTextures";
 
 /**
  * Procedurally modelled long-range business jet.
  * Local space: nose points +X, up is +Y, starboard wing extends along +Z.
  * Units are roughly metres / 3 (fuselage is 10 units long).
+ *
+ * Slender fuselage, 31° swept wing with raked tips, under-wing engines on pylons,
+ * and a navy-and-gold livery painted onto canvas textures at load time.
  */
 
-export const L = 10; // fuselage length
-export const R = 0.62; // max fuselage radius
-export const X_TAIL = -L / 2;
+/* ------------------------------------------------------------------ */
+/* Surface helpers                                                     */
+/* ------------------------------------------------------------------ */
 
-const smooth = (e0: number, e1: number, x: number) => {
-  const t = THREE.MathUtils.clamp((x - e0) / (e1 - e0), 0, 1);
-  return t * t * (3 - 2 * t);
-};
-
-/** Fuselage radius along normalised length t (0 = tail, 1 = nose). */
-export function radiusAt(t: number) {
-  if (t >= 0.8) {
-    const s = (t - 0.8) / 0.2;
-    return R * Math.pow(Math.max(0, 1 - Math.pow(s, 2.1)), 0.58);
-  }
-  if (t <= 0.34) {
-    const s = t / 0.34;
-    return R * (0.1 + 0.9 * Math.pow(smooth(0, 1, s), 0.72));
-  }
-  return R;
-}
-
-/** Vertical offset of the fuselage centreline (tail upsweep + nose droop). */
-export function centreAt(t: number) {
-  let c = 0;
-  if (t < 0.38) c += 0.5 * R * Math.pow((0.38 - t) / 0.38, 1.7);
-  if (t > 0.84) c -= 0.1 * R * Math.pow((t - 0.84) / 0.16, 1.4);
-  return c;
-}
-
-export const Z_SQUASH = 0.97;
-
-/** Point on the fuselage skin. theta is measured from the top (0) towards starboard (+PI/2). */
-export function hullPoint(t: number, theta: number, offset = 0, target = new THREE.Vector3()) {
-  const r = radiusAt(t) + offset;
-  return target.set(X_TAIL + t * L, centreAt(t) + r * Math.cos(theta), r * Math.sin(theta) * Z_SQUASH);
-}
-
-/** Builds an indexed grid surface from a parametric function. */
-export function gridSurface(
-  nu: number,
-  nv: number,
-  fn: (u: number, v: number, target: THREE.Vector3) => void,
-  flip = false,
-) {
+function gridSurface(nu: number, nv: number, fn: (u: number, v: number, target: THREE.Vector3) => void, flip = false) {
   const positions: number[] = [];
   const uvs: number[] = [];
   const indices: number[] = [];
@@ -83,7 +44,7 @@ export function gridSurface(
   return g;
 }
 
-export function mergeGeometries(geos: THREE.BufferGeometry[]) {
+function mergeGeometries(geos: THREE.BufferGeometry[]) {
   const positions: number[] = [];
   const normals: number[] = [];
   const indices: number[] = [];
@@ -126,10 +87,6 @@ function mirrorZ(g: THREE.BufferGeometry) {
   return m;
 }
 
-/* ------------------------------------------------------------------ */
-/* Lifting surfaces                                                    */
-/* ------------------------------------------------------------------ */
-
 type Station = {
   /** leading edge position */
   le: THREE.Vector3;
@@ -164,111 +121,37 @@ function loftSurface(stations: Station[]) {
   const loops = stations.map((s) => airfoil(s.thick, s.camber ?? 0));
   const nu = loops[0].length - 1;
   const nv = stations.length - 1;
-  return gridSurface(nu, nv, (u, v, target) => {
-    const j = Math.round(v * nv);
-    const i = Math.round(u * nu);
-    const s = stations[j];
-    const [x, y] = loops[j][i];
-    const up = new THREE.Vector3(0, Math.cos(s.bank), -Math.sin(s.bank));
-    // Chord runs aft from the leading edge
-    target.copy(s.le).add(new THREE.Vector3(-x * s.chord, 0, 0)).addScaledVector(up, y * s.chord);
-  }, true);
+  return gridSurface(
+    nu,
+    nv,
+    (u, v, target) => {
+      const j = Math.round(v * nv);
+      const i = Math.round(u * nu);
+      const s = stations[j];
+      const [x, y] = loops[j][i];
+      const up = new THREE.Vector3(0, Math.cos(s.bank), -Math.sin(s.bank));
+      // Chord runs aft from the leading edge
+      target
+        .copy(s.le)
+        .add(new THREE.Vector3(-x * s.chord, 0, 0))
+        .addScaledVector(up, y * s.chord);
+    },
+    true,
+  );
 }
 
-function wingStations(): Station[] {
-  const st: Station[] = [];
-  const rootLe = new THREE.Vector3(1.35, -0.36, 0.2);
-  const span = 5.1;
-  const sweep = Math.tan(THREE.MathUtils.degToRad(33));
-  const dihedral = Math.tan(THREE.MathUtils.degToRad(4.5));
-  const n = 14;
-  for (let i = 0; i <= n; i++) {
-    const s = i / n;
-    const z = rootLe.z + s * span;
-    // Kinked trailing edge: extra root chord (yehudi) fades out by 35% span
-    const chord = THREE.MathUtils.lerp(2.35, 0.78, s) + 0.75 * Math.pow(Math.max(0, 1 - s / 0.35), 2);
-    st.push({
-      le: new THREE.Vector3(rootLe.x - s * span * sweep, rootLe.y + s * span * dihedral, z),
-      chord,
-      thick: THREE.MathUtils.lerp(0.13, 0.095, s),
-      bank: 0,
-      camber: 0.02,
-    });
-  }
-  // Blended winglet: quarter arc then near-vertical fin
-  const tip = st[st.length - 1];
-  const arcR = 0.32;
-  const arcN = 7;
-  for (let i = 1; i <= arcN; i++) {
-    const a = (i / arcN) * (Math.PI / 2) * 0.93;
-    st.push({
-      le: new THREE.Vector3(
-        tip.le.x - 0.16 * (i / arcN),
-        tip.le.y + arcR * (1 - Math.cos(a)),
-        tip.le.z + arcR * Math.sin(a),
-      ),
-      chord: THREE.MathUtils.lerp(tip.chord, 0.66, i / arcN),
-      thick: 0.09,
-      bank: a,
-      camber: 0.01,
-    });
-  }
-  const top = st[st.length - 1];
-  const wingletH = 0.95;
-  const wn = 5;
-  for (let i = 1; i <= wn; i++) {
-    const s = i / wn;
-    st.push({
-      le: new THREE.Vector3(top.le.x - s * 0.55, top.le.y + s * wingletH, top.le.z + s * 0.1),
-      chord: THREE.MathUtils.lerp(top.chord, 0.3, s),
-      thick: i === wn ? 0.02 : 0.08,
-      bank: Math.PI / 2 * 0.93,
-      camber: 0,
-    });
-  }
-  return st;
-}
+/** Materials the engine builder needs. */
+type EngineMaterials = {
+  nacelle: THREE.Material;
+  chrome: THREE.Material;
+  liner: THREE.Material;
+  fanFace: THREE.Material;
+  spinner: THREE.Material;
+  fan: THREE.Material;
+  exhaust: THREE.Material;
+};
 
-function finStations(): Station[] {
-  const st: Station[] = [];
-  const h = 2.05;
-  const n = 10;
-  for (let i = 0; i <= n; i++) {
-    const s = i / n;
-    // Dorsal fillet blends into the fuselage near the root
-    const fillet = Math.pow(1 - s, 3);
-    st.push({
-      le: new THREE.Vector3(-3.35 - 1.15 * s + 0.75 * fillet, 0.25 + s * h, 0),
-      chord: THREE.MathUtils.lerp(1.6, 1.15, s) + 0.7 * fillet,
-      thick: 0.11,
-      bank: Math.PI / 2,
-    });
-  }
-  return st;
-}
-
-function stabStations(finTop: Station): Station[] {
-  const st: Station[] = [];
-  const rootLe = finTop.le.clone().add(new THREE.Vector3(0.05, 0.04, 0));
-  const span = 1.95;
-  const n = 6;
-  for (let i = 0; i <= n; i++) {
-    const s = i / n;
-    st.push({
-      le: new THREE.Vector3(rootLe.x - s * 0.95, rootLe.y + s * span * 0.04, s * span),
-      chord: THREE.MathUtils.lerp(1.12, 0.5, s),
-      thick: i === n ? 0.03 : 0.09,
-      bank: 0,
-    });
-  }
-  return st;
-}
-
-/* ------------------------------------------------------------------ */
-/* Engines                                                             */
-/* ------------------------------------------------------------------ */
-
-export function lathe(points: [number, number][], segments = 72) {
+function lathe(points: [number, number][], segments = 72) {
   // points: [x along axis, radius]; lathe around Y then rotate so axis -> +X.
   // Lathe faces point outward only when the profile runs in +axis order.
   const ordered = points[0][0] > points[points.length - 1][0] ? [...points].reverse() : points;
@@ -302,7 +185,7 @@ function fanBlade() {
   return g;
 }
 
-function buildEngine(materials: JetMaterials) {
+function buildEngine(materials: EngineMaterials) {
   const engine = new THREE.Group();
 
   // Nacelle outer skin: front at x = 0, exhaust at x = -2.26
@@ -424,151 +307,7 @@ function buildEngine(materials: JetMaterials) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Materials                                                           */
-/* ------------------------------------------------------------------ */
-
-export type JetMaterials = ReturnType<typeof createMaterials>;
-
-/** Cockpit glazing layout, shared by the glass geometry and the painted seals. */
-function cockpitPanes() {
-  const out: { t: number; theta: number; dt: number; dTheta: number; n: number }[] = [];
-  for (const side of [1, -1]) {
-    out.push({ t: 0.893, theta: side * 0.47, dt: 0.021, dTheta: 0.4, n: 5 });
-    out.push({ t: 0.874, theta: side * 1.2, dt: 0.015, dTheta: 0.19, n: 5 });
-    out.push({ t: 0.851, theta: side * 1.28, dt: 0.0075, dTheta: 0.13, n: 5 });
-  }
-  return out;
-}
-
-/** Cabin window positions on the hull, shared by the glass geometry and the painted gaskets. */
-export function windowLayout() {
-  const out: { t: number; theta: number; dt: number; dTheta: number }[] = [];
-  for (const side of [-1, 1]) {
-    for (let i = 0; i < 9; i++) out.push({ t: 0.43 + i * 0.043, theta: side * 1.32, dt: 0.0118, dTheta: 0.135 });
-  }
-  return out;
-}
-
-function createMaterials() {
-  const peel = orangePeel();
-  const rough = roughnessVariation();
-  const paint = new THREE.MeshPhysicalMaterial({
-    color: 0xe4e2dd,
-    roughness: 0.34,
-    metalness: 0.0,
-    clearcoat: 1,
-    clearcoatRoughness: 0.05,
-    envMapIntensity: 1.0,
-  });
-  /** A paint variant carrying its own seam bump map and tiled orange-peel clear coat. */
-  const detailed = (bump: THREE.Texture | null, repeat: [number, number], map: THREE.Texture | null = null) => {
-    const m = paint.clone();
-    const n = peel.clone();
-    // Orange peel is millimetre-scale: tile it finely so it only breaks up reflections
-    n.repeat.set(repeat[0] * 8, repeat[1] * 8);
-    m.clearcoatNormalMap = n;
-    m.clearcoatNormalScale = new THREE.Vector2(0.06, 0.06);
-    if (bump) {
-      m.bumpMap = bump;
-      m.bumpScale = 1.4;
-    }
-    if (map) m.map = map;
-    const r = rough.clone();
-    r.repeat.set(repeat[0] / 4, repeat[1] / 4);
-    m.roughnessMap = r;
-    return m;
-  };
-  const windows = windowLayout();
-  const fus = paintFuselage({ length: L, radius: R, windows, panes: cockpitPanes() });
-  const wingStationCount = wingStations().length;
-  return {
-    peel,
-    paint: detailed(null, [4, 4]),
-    fuselage: detailed(fus.bump, [7, 18], fus.map),
-    fuselageTextures: [fus.map, fus.bump],
-    wing: detailed(paintWing(14, wingStationCount - 1), [10, 6], paintWingColor(14, wingStationCount - 1)),
-    fin: detailed(paintTailSurface(0.7, 0.12, 0.97), [5, 5]),
-    stab: detailed(paintTailSurface(0.7, 0.06, 0.94), [5, 3]),
-    nacelle: detailed(paintNacelle(), [8, 3]),
-    emblem: new THREE.MeshPhysicalMaterial({
-      map: paintEmblem("HELIAST"),
-      transparent: true,
-      metalness: 0.75,
-      roughness: 0.3,
-      clearcoat: 1,
-      clearcoatRoughness: 0.05,
-      depthWrite: false,
-      polygonOffset: true,
-      polygonOffsetFactor: -4,
-    }),
-    belly: new THREE.MeshPhysicalMaterial({
-      color: 0x2a2d33,
-      roughness: 0.38,
-      metalness: 0.35,
-      clearcoat: 1,
-      clearcoatRoughness: 0.1,
-    }),
-    chrome: new THREE.MeshPhysicalMaterial({
-      color: 0xd9dde2,
-      roughness: 0.12,
-      metalness: 1,
-    }),
-    accent: new THREE.MeshPhysicalMaterial({
-      color: 0xb7955d,
-      roughness: 0.28,
-      metalness: 0.85,
-      clearcoat: 1,
-      clearcoatRoughness: 0.08,
-    }),
-    glass: new THREE.MeshPhysicalMaterial({
-      color: 0x05070a,
-      roughness: 0.03,
-      metalness: 0.4,
-      clearcoat: 1,
-      clearcoatRoughness: 0.0,
-      envMapIntensity: 1.6,
-      emissive: new THREE.Color(1.0, 0.68, 0.38),
-      emissiveIntensity: 0,
-    }),
-    darkMetal: new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.6, metalness: 0.6, side: THREE.DoubleSide }),
-    fan: new THREE.MeshStandardMaterial({ color: 0x9aa0a8, roughness: 0.28, metalness: 1 }),
-    fanFace: new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.7, metalness: 0.3 }),
-    liner: new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.75, metalness: 0.2, side: THREE.DoubleSide }),
-    spinner: new THREE.MeshPhysicalMaterial({
-      color: 0xffffff,
-      map: paintSpinner(),
-      roughness: 0.25,
-      metalness: 0.4,
-      clearcoat: 1,
-      clearcoatRoughness: 0.08,
-    }),
-    // Heat-treated metal: faint bronze/blue iridescence like a real exhaust cone
-    exhaust: new THREE.MeshPhysicalMaterial({
-      color: 0x7a6a5c,
-      roughness: 0.42,
-      metalness: 1,
-      iridescence: 0.55,
-      iridescenceIOR: 1.8,
-      iridescenceThicknessRange: [250, 600],
-      side: THREE.DoubleSide,
-    }),
-    lens: new THREE.MeshPhysicalMaterial({
-      color: 0xffffff,
-      transparent: true,
-      opacity: 0.18,
-      roughness: 0.02,
-      metalness: 0,
-      clearcoat: 1,
-      depthWrite: false,
-    }),
-    navRed: new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.2, 0.15) }),
-    navGreen: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 4, 0.8) }),
-    strobe: new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 6, 6), transparent: true }),
-  };
-}
-
-/* ------------------------------------------------------------------ */
-/* Assembly                                                            */
+/* Aircraft                                                            */
 /* ------------------------------------------------------------------ */
 
 export type Jet = {
@@ -579,327 +318,592 @@ export type Jet = {
   dispose: () => void;
 };
 
-/** A thin cylinder between two points. */
-function rod(a: THREE.Vector3, b: THREE.Vector3, r: number, mat: THREE.Material) {
-  const len = a.distanceTo(b);
-  const g = new THREE.CylinderGeometry(r, r, len, 8);
-  const m = new THREE.Mesh(g, mat);
-  m.position.copy(a).add(b).multiplyScalar(0.5);
-  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
-  m.castShadow = true;
-  return m;
-}
+const PI = Math.PI;
+const TAU = PI * 2;
+/** Fuselage radius, length and tail position. */
+const R = 0.46;
+const L = 10;
+const X0 = -5;
 
-/** Wing station interpolated at spanwise fraction s of the main (pre-winglet) wing. */
-function wingAt(s: number) {
-  const st = wingStations().slice(0, 15);
-  const f = THREE.MathUtils.clamp(s, 0, 1) * 14;
-  const i = Math.min(13, Math.floor(f));
-  const k = f - i;
-  return {
-    le: st[i].le.clone().lerp(st[i + 1].le, k),
-    chord: THREE.MathUtils.lerp(st[i].chord, st[i + 1].chord, k),
-    thick: THREE.MathUtils.lerp(st[i].thick, st[i + 1].thick, k),
-  };
-}
+const canvas = (w: number, h: number) => {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  return [c, c.getContext("2d")!] as const;
+};
 
-/** Flap-track fairings, antennas, pitot probes and static wicks. */
-function addSmallParts(group: THREE.Group, mats: JetMaterials) {
-  const place = (geo: THREE.BufferGeometry, mat: THREE.Material, mirror: boolean, shadows = true) => {
-    const a = new THREE.Mesh(geo, mat);
-    a.castShadow = a.receiveShadow = shadows;
-    group.add(a);
-    if (mirror) {
-      const b = new THREE.Mesh(mirrorZ(geo), mat);
-      b.castShadow = b.receiveShadow = shadows;
-      group.add(b);
-    }
-  };
+const texture = (c: HTMLCanvasElement, srgb = true, aniso = 8) => {
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = srgb ? THREE.SRGBColorSpace : THREE.NoColorSpace;
+  t.anisotropy = aniso;
+  return t;
+};
 
-  // Flap-track fairings ("canoes") under the trailing edge
-  const canoe = lathe(
-    [
-      [0, 0],
-      [-0.06, 0.045],
-      [-0.3, 0.07],
-      [-0.75, 0.062],
-      [-1.05, 0.03],
-      [-1.14, 0],
-    ],
-    24,
-  );
-  canoe.scale(0.9, 0.8, 0.9);
-  const canoes: THREE.BufferGeometry[] = [];
-  for (const s of [0.26, 0.45, 0.63]) {
-    const w = wingAt(s);
-    const g = canoe.clone();
-    g.translate(w.le.x - w.chord * 0.3, w.le.y - w.chord * w.thick * 0.4, w.le.z);
-    canoes.push(g);
+/** Fuselage radius along normalised length v (0 = tail, 1 = nose). */
+const rad = (v: number) => {
+  let r = R;
+  if (v > 0.88) {
+    const n = (v - 0.88) / 0.12;
+    r = R * Math.pow(Math.max(0, 1 - Math.pow(n, 2.1)), 0.56);
+  } else if (v < 0.24) {
+    const n = (0.24 - v) / 0.24;
+    r = R * Math.pow(Math.max(0, 1 - Math.pow(n, 1.85)), 0.6);
   }
-  canoe.dispose();
-  place(mergeGeometries(canoes), mats.paint, true);
+  return Math.max(r, 0.03);
+};
 
-  // Blade antennas on the crown and belly
-  const bladeShape = new THREE.Shape();
-  bladeShape.moveTo(0.1, 0);
-  bladeShape.lineTo(-0.08, 0);
-  bladeShape.lineTo(-0.1, 0.16);
-  bladeShape.lineTo(-0.05, 0.165);
-  bladeShape.closePath();
-  const blade = new THREE.ExtrudeGeometry(bladeShape, { depth: 0.014, bevelEnabled: true, bevelSize: 0.004, bevelThickness: 0.004, bevelSegments: 2 });
-  blade.translate(0, 0, -0.007);
-  const antennas: THREE.BufferGeometry[] = [];
-  for (const [t, down] of [
-    [0.66, false],
-    [0.3, false],
-    [0.56, true],
-  ] as const) {
-    const g = blade.clone();
-    if (down) g.rotateX(Math.PI);
-    const y = centreAt(t) + (down ? -1 : 1) * (radiusAt(t) - 0.01);
-    g.translate(X_TAIL + t * L, y, 0);
-    antennas.push(g);
-  }
-  blade.dispose();
-  place(mergeGeometries(antennas), mats.paint, false);
+/** Centreline height: nose droop and tail upsweep. */
+const yc = (v: number) => {
+  if (v > 0.88) return -0.05 * Math.pow((v - 0.88) / 0.12, 1.7);
+  if (v < 0.3) return 0.17 * Math.pow((0.3 - v) / 0.3, 1.9);
+  return 0;
+};
 
-  // Pitot probes either side of the nose
-  const probe = new THREE.CylinderGeometry(0.007, 0.007, 0.16, 8).rotateZ(Math.PI / 2);
-  const mast = new THREE.CylinderGeometry(0.01, 0.014, 0.07, 8);
-  const probes: THREE.BufferGeometry[] = [];
-  for (const side of [1, -1]) {
-    const base = hullPoint(0.905, side * 1.95, 0);
-    const n = new THREE.Vector3(0, Math.cos(side * 1.95), Math.sin(side * 1.95) * Z_SQUASH).normalize();
-    const m = mast.clone().applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), n));
-    probes.push(m.translate(base.x, base.y + n.y * 0.035, base.z + n.z * 0.035));
-    probes.push(probe.clone().translate(base.x + 0.07, base.y + n.y * 0.07, base.z + n.z * 0.07));
-  }
-  probe.dispose();
-  mast.dispose();
-  place(mergeGeometries(probes), mats.chrome, false, false);
+/** Point on the skin; phi is measured from the top toward starboard. */
+const pos = (v: number, phi: number, off: number, t: THREE.Vector3) => {
+  const r = rad(v) + off;
+  return t.set(X0 + v * L, yc(v) + r * Math.cos(phi), r * Math.sin(phi));
+};
 
-  // Angle-of-attack vanes either side of the nose
-  const vaneShape = new THREE.Shape();
-  vaneShape.moveTo(0.02, 0);
-  vaneShape.lineTo(-0.03, 0);
-  vaneShape.lineTo(-0.05, 0.06);
-  vaneShape.lineTo(-0.025, 0.062);
-  vaneShape.closePath();
-  const vane = new THREE.ExtrudeGeometry(vaneShape, { depth: 0.004, bevelEnabled: false });
-  vane.translate(0, 0, -0.002);
-  const vanes: THREE.BufferGeometry[] = [];
-  for (const side of [1, -1]) {
-    const th = side * 1.95;
-    const base = hullPoint(0.876, th, 0);
-    const n = new THREE.Vector3(0, Math.cos(th), Math.sin(th) * Z_SQUASH).normalize();
-    const g = vane.clone();
-    // shape Y → surface normal, shape X stays along the fuselage axis
-    const basis = new THREE.Matrix4().makeBasis(new THREE.Vector3(1, 0, 0), n, new THREE.Vector3(1, 0, 0).cross(n));
-    g.applyMatrix4(basis).translate(base.x, base.y, base.z);
-    vanes.push(g);
+/** Averages normals across the u seam of a wrapped grid so it shades smoothly. */
+const seam = (g: THREE.BufferGeometry, nu: number, nv: number) => {
+  const n = g.getAttribute("normal") as THREE.BufferAttribute;
+  const a = new THREE.Vector3();
+  const b = new THREE.Vector3();
+  for (let j = 0; j <= nv; j++) {
+    const i0 = j * (nu + 1);
+    const i1 = i0 + nu;
+    a.fromBufferAttribute(n, i0);
+    b.fromBufferAttribute(n, i1);
+    a.add(b).normalize();
+    n.setXYZ(i0, a.x, a.y, a.z);
+    n.setXYZ(i1, a.x, a.y, a.z);
   }
-  vane.dispose();
-  place(mergeGeometries(vanes), mats.darkMetal, false, false);
+  n.needsUpdate = true;
+  return g;
+};
 
-  // Static discharge wicks on the outer trailing edge
-  const wick = new THREE.CylinderGeometry(0.0035, 0.0035, 0.13, 6).rotateZ(Math.PI / 2);
-  const wicks: THREE.BufferGeometry[] = [];
-  for (const s of [0.74, 0.84, 0.94]) {
-    const w = wingAt(s);
-    wicks.push(wick.clone().translate(w.le.x - w.chord - 0.05, w.le.y + 0.005, w.le.z));
-  }
-  wick.dispose();
-  place(mergeGeometries(wicks), mats.darkMetal, true, false);
-}
+/** Door positions along the fuselage (both sides). */
+const DOORS = [0.845, 0.655, 0.5, 0.325];
 
 export function createJet(): Jet {
-  const mats = createMaterials();
-  const group = new THREE.Group();
-  group.name = "jet";
+  let seed = 7;
+  const rng = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
 
-  const add = (geo: THREE.BufferGeometry, mat: THREE.Material, shadows = true) => {
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.castShadow = shadows;
-    mesh.receiveShadow = shadows;
-    group.add(mesh);
-    return mesh;
-  };
-
-  // Fuselage
-  add(
-    gridSurface(128, 260, (u, v, p) => hullPoint(v, u * Math.PI * 2, 0, p)),
-    mats.fuselage,
-  );
-
-  // Cockpit glazing: separate panes with painted frame posts between them
-  const pane = (tc: number, thc: number, dt: number, dth: number, n = 5) =>
-    gridSurface(48, 6, (u, v, p) => {
-      const a = u * Math.PI * 2;
-      const ca = Math.cos(a);
-      const sa = Math.sin(a);
-      const sx = Math.sign(ca) * Math.abs(ca) ** (2 / n);
-      const sy = Math.sign(sa) * Math.abs(sa) ** (2 / n);
-      hullPoint(tc + sx * v * dt, thc + sy * v * dth, 0.004, p);
-    });
-  add(mergeGeometries(cockpitPanes().map((p) => pane(p.t, p.theta, p.dt, p.dTheta, p.n))), mats.glass, false);
-
-  // Windscreen wipers parked along the lower frame
-  for (const side of [1, -1]) {
-    const a = hullPoint(0.8735, side * 0.8, 0.012);
-    const b = hullPoint(0.8765, side * 0.2, 0.012);
-    group.add(rod(a, b, 0.0045, mats.darkMetal));
+  /* ---------- livery textures ---------- */
+  const W = 1024;
+  const H = 4096;
+  const px = (p: number) => (p / TAU) * W;
+  const py = (v: number) => (1 - v) * H;
+  const [fc, f] = canvas(W, H);
+  f.fillStyle = "#f3f1ec";
+  f.fillRect(0, 0, W, H);
+  for (let i = 0; i < 9e4; i++) {
+    f.fillStyle = rng() < 0.5 ? "rgba(255,255,255,.05)" : "rgba(70,60,50,.035)";
+    f.fillRect(rng() * W, rng() * H, 1.4, 1.4);
   }
 
-  // Cabin windows: large ovals on both sides  // Cabin windows: large ovals on both sides
-  const windows = windowLayout().map((w) =>
-    gridSurface(28, 4, (u, v, p) => {
-      const a = u * Math.PI * 2;
-      hullPoint(w.t + Math.cos(a) * v * w.dt, w.theta + Math.sin(a) * v * w.dTheta, 0.004, p);
-    }),
-  );
-  add(mergeGeometries(windows), mats.glass, false);
-
-  // Champagne cheatline below the windows, tapering toward nose and tail
-  for (let side = -1; side <= 1; side += 2) {
-    add(
-      gridSurface(4, 160, (u, v, p) => {
-        const t = THREE.MathUtils.lerp(0.14, 0.955, v);
-        const taper = Math.min(1, v / 0.12, (1 - v) / 0.08);
-        const w = 0.028 * taper;
-        hullPoint(t, side * (1.6 + (u - 0.5) * w), 0.003, p);
-      }, side < 0),
-      mats.accent,
-      false,
-    );
+  // Grey belly with a soft edge
+  {
+    const g = f.createLinearGradient(px(1.95), 0, px(2.45), 0);
+    g.addColorStop(0, "rgba(150,154,162,0)");
+    g.addColorStop(1, "rgba(150,154,162,1)");
+    f.fillStyle = g;
+    f.fillRect(px(1.95), 0, px(2.45) - px(1.95), H);
+    f.fillStyle = "#969aa2";
+    f.fillRect(px(2.45), 0, px(TAU - 2.45) - px(2.45), H);
+    const g2 = f.createLinearGradient(px(TAU - 2.45), 0, px(TAU - 1.95), 0);
+    g2.addColorStop(0, "rgba(150,154,162,1)");
+    g2.addColorStop(1, "rgba(150,154,162,0)");
+    f.fillStyle = g2;
+    f.fillRect(px(TAU - 2.45), 0, px(TAU - 1.95) - px(TAU - 2.45), H);
   }
 
-  // Belly fairing to blend the wing root
-  const fairing = new THREE.Mesh(new THREE.SphereGeometry(1, 64, 32), mats.paint);
-  fairing.scale.set(2.0, 0.26, 0.5);
-  fairing.position.set(0.1, -0.4, 0);
-  fairing.castShadow = fairing.receiveShadow = true;
-  group.add(fairing);
-
-  // Wings
-  const wing = loftSurface(wingStations());
-  add(wing, mats.wing);
-  add(mirrorZ(wing), mats.wing);
-
-  // Leading-edge polished strip
-  const leStrip = (stations: Station[]) => {
-    const main = stations.slice(0, 15);
-    return gridSurface(10, main.length - 1, (u, v, p) => {
-      const s = main[Math.round(v * (main.length - 1))];
-      const a = (u - 0.5) * Math.PI * 0.9;
-      const r = s.chord * s.thick * 0.52;
-      p.copy(s.le).add(new THREE.Vector3(-r * (1 - Math.cos(a)) + 0.004, Math.sin(a) * r + 0.002 * s.chord, 0));
-    });
-  };
-  const leGeo = leStrip(wingStations());
-  add(leGeo, mats.chrome, false);
-  add(mirrorZ(leGeo), mats.chrome, false);
-
-  // Tail
-  const finSt = finStations();
-  const finMesh = add(loftSurface(finSt), mats.fin);
-  const stab = loftSurface(stabStations(finSt[finSt.length - 1]));
-  add(stab, mats.stab);
-  add(mirrorZ(stab), mats.stab);
-
-  // Tail emblem, projected onto both sides of the fin
-  finMesh.updateMatrixWorld(true);
-  for (const side of [1, -1]) {
-    const decal = new THREE.Mesh(
-      new DecalGeometry(
-        finMesh,
-        new THREE.Vector3(-4.62, 1.42, side * 0.06),
-        new THREE.Euler(0, side > 0 ? 0 : Math.PI, 0),
-        new THREE.Vector3(0.78, 0.78, 0.12),
-      ),
-      mats.emblem,
-    );
-    decal.receiveShadow = true;
-    group.add(decal);
-  }
-
-  // Engines on pylons
-  const engines: THREE.Group[] = [];
-  for (let side = -1; side <= 1; side += 2) {
-    const e = buildEngine(mats);
-    e.position.set(-1.72, 0.52, side * 1.12);
-    group.add(e);
-    engines.push(e);
-  }
-  const pylon = loftSurface(
-    [0, 1].map((i) => ({
-      le: new THREE.Vector3(-2.35 - i * 0.15, 0.45 + i * 0.05, 0.3 + i * 0.55),
-      chord: 1.25,
-      thick: 0.14,
-      bank: 0,
-    })),
-  );
-  add(pylon, mats.paint);
-  add(mirrorZ(pylon), mats.paint);
-
-  // Tail cone APU exhaust
-  const apu = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.065, 0.1, 24, 1, true).rotateZ(Math.PI / 2), mats.exhaust);
-  apu.position.set(X_TAIL - 0.02, centreAt(0), 0);
-  group.add(apu);
-
-  addSmallParts(group, mats);
-
-  // Navigation lights on the winglet tips and a tail strobe
-  const wingTip = wingStations();
-  const tipLe = wingTip[14].le;
-  const navGeo = new THREE.SphereGeometry(0.035, 12, 8);
-  const navR = new THREE.Mesh(navGeo, mats.navRed);
-  navR.position.set(tipLe.x - 0.1, tipLe.y + 0.02, -(tipLe.z + 0.12));
-  const navG = new THREE.Mesh(navGeo, mats.navGreen);
-  navG.position.set(tipLe.x - 0.1, tipLe.y + 0.02, tipLe.z + 0.12);
-  const strobe = new THREE.Mesh(new THREE.SphereGeometry(0.04, 12, 8), mats.strobe);
-  const finTop = finSt[finSt.length - 1];
-  strobe.position.set(finTop.le.x - 0.95, finTop.le.y + 0.12, 0);
-  const beacon = new THREE.Mesh(navGeo, mats.navRed);
-  beacon.position.set(0.2, radiusAt(0.52) + 0.02, 0);
-  const beaconLow = new THREE.Mesh(navGeo, mats.navRed);
-  beaconLow.position.set(-0.4, centreAt(0.45) - radiusAt(0.45) - 0.03, 0);
-  const tailLight = new THREE.Mesh(navGeo, mats.strobe);
-  tailLight.position.set(X_TAIL - 0.06, centreAt(0), 0);
-  group.add(navR, navG, strobe, beacon, beaconLow, tailLight);
-  // Clear lens fairings over the lights
-  const lensGeo = new THREE.SphereGeometry(1, 20, 12);
-  for (const light of [navR, navG, beacon, beaconLow]) {
-    const lens = new THREE.Mesh(lensGeo, mats.lens);
-    lens.position.copy(light.position);
-    lens.scale.set(0.075, 0.045, 0.045);
-    group.add(lens);
-  }
-
-  const setNight = (n: number) => {
-    mats.glass.emissiveIntensity = n * 0.55;
-  };
-
-  const update = (time: number, dt: number) => {
-    for (const e of engines) (e.userData.fan as THREE.Group).rotation.x += dt * 9;
-    const phase = time % 1.6;
-    mats.strobe.opacity = phase < 0.06 || (phase > 0.18 && phase < 0.24) ? 1 : 0;
-    beacon.visible = time % 1.2 < 0.5;
-    beaconLow.visible = (time + 0.6) % 1.2 < 0.5;
-  };
-
-  const dispose = () => {
-    group.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh) m.geometry.dispose();
-    });
-    for (const v of Object.values(mats)) {
-      if (Array.isArray(v)) v.forEach((t) => t.dispose());
-      else v.dispose();
+  // Cheatline: navy band under the windows rising over the tail, gold pinstripe
+  const band = (a0: number, a1: number, col: string) => {
+    for (const m of [1, -1]) {
+      f.fillStyle = col;
+      f.beginPath();
+      const pts: [number, number][] = [];
+      for (let k = 0; k <= 60; k++) {
+        const v = 0.86 - (k / 60) * 0.86;
+        const rise = Math.pow(Math.max(0, (0.42 - v) / 0.42), 1.7) * 1.05;
+        pts.push([v, a0 - rise]);
+      }
+      for (let k = 60; k >= 0; k--) {
+        const v = 0.86 - (k / 60) * 0.86;
+        const rise = Math.pow(Math.max(0, (0.42 - v) / 0.42), 1.7) * 1.05;
+        pts.push([v, a1 - rise * (1 - 0.55 * Math.min(1, Math.max(0, (0.2 - v) / 0.2)))]);
+      }
+      pts.forEach(([v, a], i) => {
+        const aa = m > 0 ? a : TAU - a;
+        const x = px(aa);
+        const y = py(v);
+        if (i) f.lineTo(x, y);
+        else f.moveTo(x, y);
+      });
+      f.closePath();
+      f.fill();
     }
-    for (const m of [mats.wing, mats.fin, mats.stab, mats.nacelle]) m.bumpMap?.dispose();
-    mats.wing.map?.dispose();
-    mats.emblem.map?.dispose();
+  };
+  band(1.6, 1.84, "#141f33");
+  band(1.88, 1.915, "#c8a96e");
+
+  // Navy tail cone
+  f.fillStyle = "#141f33";
+  f.fillRect(0, py(0.075), W, H - py(0.075));
+
+  // Panel lines
+  f.strokeStyle = "rgba(70,76,88,.34)";
+  f.lineWidth = 1.6;
+  for (let v = 0.05; v < 0.93; v += 0.0385) {
+    f.beginPath();
+    f.moveTo(0, py(v));
+    f.lineTo(W, py(v));
+    f.stroke();
+  }
+  f.lineWidth = 1.2;
+  for (const a of [0.55, 1.05, 2.1, 2.7]) {
+    for (const m of [1, -1]) {
+      const x = px(m > 0 ? a : TAU - a);
+      f.beginPath();
+      f.moveTo(x, py(0.92));
+      f.lineTo(x, py(0.04));
+      f.stroke();
+    }
+  }
+
+  // Doors and their handles
+  f.strokeStyle = "rgba(50,56,68,.75)";
+  f.lineWidth = 2.2;
+  for (const d of DOORS) {
+    for (const m of [1, -1]) {
+      const xa = px(m > 0 ? 1.0 : TAU - 1.62);
+      const xb = px(m > 0 ? 1.62 : TAU - 1.0);
+      const ya = py(d + 0.022);
+      const yb = py(d - 0.022);
+      f.beginPath();
+      f.roundRect(xa, ya, xb - xa, yb - ya, 22);
+      f.stroke();
+      f.fillStyle = "rgba(40,44,54,.5)";
+      f.fillRect((xa + xb) / 2 - 5, (ya + yb) / 2 - 4, 10, 8);
+    }
+  }
+
+  // Wordmark above the windows, reading correctly from each side
+  f.save();
+  f.font = "600 74px Geist, 'Helvetica Neue', Arial, sans-serif";
+  f.fillStyle = "#141f33";
+  f.textAlign = "center";
+  f.textBaseline = "middle";
+  if ("letterSpacing" in f) f.letterSpacing = "26px";
+  for (const [m, a] of [
+    [1, 1.04],
+    [-1, TAU - 1.04],
+  ]) {
+    f.save();
+    f.translate(px(a), py(0.67));
+    f.scale(m > 0 ? 1 : -1, 1);
+    f.rotate(-PI / 2);
+    f.fillText("HELIAST", 0, 0);
+    f.restore();
+  }
+  f.restore();
+  const fusMap = texture(fc);
+
+  /* ---------- wing / tail textures ---------- */
+  const paintSurface = (base: string, lines: (x: CanvasRenderingContext2D) => void) => {
+    const [c, x] = canvas(1024, 1024);
+    x.fillStyle = base;
+    x.fillRect(0, 0, 1024, 1024);
+    for (let i = 0; i < 4e4; i++) {
+      x.fillStyle = rng() < 0.5 ? "rgba(255,255,255,.05)" : "rgba(60,60,60,.04)";
+      x.fillRect(rng() * 1024, rng() * 1024, 1.5, 1.5);
+    }
+    x.strokeStyle = "rgba(60,66,78,.5)";
+    x.lineWidth = 2;
+    lines(x);
+    return texture(c);
+  };
+  // Airfoil loop u coordinate for chord fraction r on the upper / lower skin
+  const uU = (r: number) => Math.acos(2 * r - 1) / PI / 2;
+  const uL = (r: number) => 1 - uU(r);
+  const seg = (x: CanvasRenderingContext2D, u: number, d0: number, d1: number) => {
+    x.beginPath();
+    x.moveTo(u * 1024, (1 - d0) * 1024);
+    x.lineTo(u * 1024, (1 - d1) * 1024);
+    x.stroke();
+  };
+  const hline = (x: CanvasRenderingContext2D, d: number, u0: number, u1: number) => {
+    x.beginPath();
+    x.moveTo(u0 * 1024, (1 - d) * 1024);
+    x.lineTo(u1 * 1024, (1 - d) * 1024);
+    x.stroke();
+  };
+  const wingMap = paintSurface("#ebe9e4", (x) => {
+    for (const [r, a, b] of [
+      [0.74, 0.12, 0.58],
+      [0.8, 0.64, 0.9],
+      [0.12, 0.1, 0.95],
+    ])
+      for (const u of [uU(r), uL(r)]) seg(x, u, a, b);
+    for (const d of [0.12, 0.58, 0.64, 0.9])
+      for (const [r0, r1] of [
+        [0.74, 1],
+        [0.8, 1],
+      ])
+        for (const [a, b] of [
+          [uU(r1), uU(r0)],
+          [uL(r0), uL(r1)],
+        ])
+          hline(x, d, a, b);
+    x.strokeStyle = "rgba(60,66,78,.35)";
+    for (let d = 0.27; d < 0.56; d += 0.06) {
+      x.strokeRect(uU(0.74) * 1024, (1 - d - 0.04) * 1024, (uU(0.6) - uU(0.74)) * 1024, 0.04 * 1024);
+    }
+    x.fillStyle = "rgba(70,70,76,.38)";
+    x.fillRect(uU(1) * 1024, 0, (uU(0.95) - uU(1)) * 1024, 1024);
+  });
+  const stabMap = paintSurface("#e9e7e2", (x) => {
+    for (const u of [uU(0.7), uL(0.7)]) seg(x, u, 0.04, 0.97);
+  });
+  // Navy fin with a rudder line and the gold diamond emblem on both sides
+  const [fnc, fnx] = canvas(1024, 1024);
+  fnx.fillStyle = "#121b2d";
+  fnx.fillRect(0, 0, 1024, 1024);
+  for (let i = 0; i < 4e4; i++) {
+    fnx.fillStyle = rng() < 0.5 ? "rgba(255,255,255,.04)" : "rgba(0,0,0,.08)";
+    fnx.fillRect(rng() * 1024, rng() * 1024, 1.5, 1.5);
+  }
+  fnx.strokeStyle = "rgba(150,160,180,.35)";
+  fnx.lineWidth = 2;
+  for (const u of [uU(0.68), uL(0.68)]) seg(fnx, u, 0.03, 0.98);
+  for (const u of [uU(0.45), uL(0.45)]) {
+    fnx.save();
+    fnx.translate(u * 1024, 0.5 * 1024);
+    fnx.strokeStyle = "#dcbd8c";
+    fnx.fillStyle = "#dcbd8c";
+    fnx.lineWidth = 5;
+    fnx.beginPath();
+    fnx.moveTo(0, -95);
+    fnx.lineTo(95, 0);
+    fnx.lineTo(0, 95);
+    fnx.lineTo(-95, 0);
+    fnx.closePath();
+    fnx.stroke();
+    fnx.beginPath();
+    fnx.moveTo(-95, 0);
+    fnx.lineTo(95, 0);
+    fnx.stroke();
+    fnx.beginPath();
+    fnx.arc(0, 0, 16, 0, TAU);
+    fnx.fill();
+    fnx.restore();
+  }
+  const finMap = texture(fnc);
+
+  /* ---------- materials ---------- */
+  const clear = (o: THREE.MeshPhysicalMaterialParameters) =>
+    new THREE.MeshPhysicalMaterial({
+      roughness: 0.3,
+      metalness: 0,
+      clearcoat: 1,
+      clearcoatRoughness: 0.05,
+      envMapIntensity: 1,
+      ...o,
+    });
+  const m = {
+    fus: clear({ color: 0xffffff, map: fusMap, roughness: 0.32 }),
+    wing: clear({ color: 0xffffff, map: wingMap, roughness: 0.36 }),
+    stab: clear({ color: 0xffffff, map: stabMap, roughness: 0.36 }),
+    fin: clear({ color: 0xffffff, map: finMap, roughness: 0.28 }),
+    nacelle: clear({ color: 0xf1f2ec, roughness: 0.3 }),
+    belly: clear({ color: 0xbdbdbd, roughness: 0.4 }),
+    glass: new THREE.MeshPhysicalMaterial({
+      color: 0x060717,
+      roughness: 0.04,
+      metalness: 0.5,
+      clearcoat: 1,
+      clearcoatRoughness: 0,
+      envMapIntensity: 1.8,
+      emissive: new THREE.Color(1, 0.68, 0.38),
+      emissiveIntensity: 0,
+      polygonOffset: true,
+      polygonOffsetFactor: -3,
+      polygonOffsetUnits: -3,
+    }),
+    dark: new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.6, metalness: 0.6, side: THREE.DoubleSide }),
+    chrome: new THREE.MeshPhysicalMaterial({ color: 0xd9dde2, roughness: 0.12, metalness: 1 }),
+    fan: new THREE.MeshStandardMaterial({ color: 0x8c8c8c, roughness: 0.28, metalness: 1 }),
+    fanFace: new THREE.MeshStandardMaterial({ color: 0x0b0c0e, roughness: 0.7, metalness: 0.3 }),
+    liner: new THREE.MeshStandardMaterial({ color: 0x2a2c30, roughness: 0.75, metalness: 0.2, side: THREE.DoubleSide }),
+    spinner: new THREE.MeshPhysicalMaterial({
+      color: 0xf3f1f3,
+      roughness: 0.25,
+      metalness: 0.4,
+      clearcoat: 1,
+      clearcoatRoughness: 0.08,
+    }),
+    exhaust: new THREE.MeshPhysicalMaterial({
+      color: 0x7a6a5c,
+      roughness: 0.42,
+      metalness: 1,
+      iridescence: 0.55,
+      iridescenceIOR: 1.8,
+      iridescenceThicknessRange: [250, 600],
+      side: THREE.DoubleSide,
+    }),
+    red: new THREE.MeshBasicMaterial({ color: new THREE.Color(4, 0.2, 0.15) }),
+    green: new THREE.MeshBasicMaterial({ color: new THREE.Color(0.2, 4, 0.8) }),
+    strobe: new THREE.MeshBasicMaterial({ color: new THREE.Color(6, 6, 6) }),
+    beacon: new THREE.MeshBasicMaterial({ color: new THREE.Color(5, 0.25, 0.2) }),
   };
 
-  return { group, update, setNight, dispose };
+  const g = new THREE.Group();
+  g.name = "jet";
+  const add = (geo: THREE.BufferGeometry, mat: THREE.Material, cast = true, recv = true) => {
+    const o = new THREE.Mesh(geo, mat);
+    o.castShadow = cast;
+    o.receiveShadow = recv;
+    g.add(o);
+    return o;
+  };
+
+  /* ---------- fuselage ---------- */
+  add(
+    seam(
+      gridSurface(96, 300, (u, w, t) => pos(w, u * TAU, 0, t)),
+      96,
+      300,
+    ),
+    m.fus,
+  );
+
+  /** Rounded-rect patch following the fuselage skin (windows, cockpit glazing). */
+  const patch = (v0: number, p0: number, dv: number, dp: number, n: number, off: number) =>
+    gridSurface(18, 3, (u, w, t) => {
+      const q = u * TAU;
+      const c = Math.cos(q);
+      const s = Math.sin(q);
+      const ie = Math.sign(c) * Math.pow(Math.abs(c), 2 / n);
+      const je = Math.sign(s) * Math.pow(Math.abs(s), 2 / n);
+      pos(v0 + ie * w * dv, p0 + je * w * dp, off, t);
+    });
+  const glazing: THREE.BufferGeometry[] = [];
+  for (const s of [1, -1]) {
+    const side = (a: number) => (s > 0 ? a : TAU - a);
+    for (let v = 0.805; v > 0.2; v -= 0.0095) {
+      if (DOORS.some((d) => Math.abs(v - d) < 0.03)) continue;
+      glazing.push(patch(v, side(1.44), 0.0031, 0.072, 2.6, 0.0025));
+    }
+    glazing.push(patch(0.93, side(0.52), 0.017, 0.27, 3.4, 0.003), patch(0.915, side(1.02), 0.012, 0.2, 3.4, 0.003));
+    glazing.push(patch(0.944, side(0.18), 0.012, 0.15, 3.4, 0.003));
+  }
+  add(mergeGeometries(glazing), m.glass, false, false);
+
+  // Belly fairing
+  {
+    const a = add(new THREE.SphereGeometry(1, 48, 24), m.belly, true, true);
+    a.scale.set(1.95, 0.2, 0.5);
+    a.position.set(0.05, -0.345, 0);
+  }
+
+  /* ---------- wing ---------- */
+  const wz0 = 0.28;
+  const span = 4.4;
+  const x0 = 0.8;
+  const y0 = -0.3;
+  const sweep = Math.tan(THREE.MathUtils.degToRad(31));
+  const dihedral = Math.tan(THREE.MathUtils.degToRad(5.5));
+  const NW = 14;
+  const secs: Station[] = [];
+  for (let h = 0; h <= NW; h++) {
+    const d = h / NW;
+    const chord =
+      d < 0.3
+        ? THREE.MathUtils.lerp(1.85, 1.2, d / 0.3)
+        : THREE.MathUtils.lerp(1.2, 0.34, Math.pow((d - 0.3) / 0.7, 0.92));
+    // Raked wingtip
+    const rake = d > 0.84 ? Math.pow((d - 0.84) / 0.16, 1.6) * 0.42 : 0;
+    secs.push({
+      le: new THREE.Vector3(
+        x0 - d * span * sweep - rake,
+        y0 + d * span * dihedral + (d > 0.9 ? (d - 0.9) * 0.5 : 0),
+        wz0 + d * span,
+      ),
+      chord,
+      thick: THREE.MathUtils.lerp(0.14, 0.088, d),
+      bank: 0,
+      camber: 0.016,
+    });
+  }
+  const wingAt = (d: number) => {
+    const f2 = THREE.MathUtils.clamp(d, 0, 1) * NW;
+    const i = Math.min(NW - 1, Math.floor(f2));
+    const s2 = f2 - i;
+    return {
+      le: secs[i].le.clone().lerp(secs[i + 1].le, s2),
+      chord: THREE.MathUtils.lerp(secs[i].chord, secs[i + 1].chord, s2),
+      thick: THREE.MathUtils.lerp(secs[i].thick, secs[i + 1].thick, s2),
+    };
+  };
+  const wing = loftSurface(secs);
+  add(wing, m.wing);
+  add(mirrorZ(wing), m.wing);
+
+  // Flap-track fairings
+  {
+    const pod = lathe(
+      [
+        [0, 0],
+        [-0.05, 0.04],
+        [-0.28, 0.062],
+        [-0.7, 0.052],
+        [-1, 0.024],
+        [-1.1, 0],
+      ],
+      20,
+    );
+    const pods: THREE.BufferGeometry[] = [];
+    for (const d of [0.2, 0.34, 0.5, 0.72]) {
+      const w = wingAt(d);
+      const p = pod.clone();
+      p.scale(0.85 + 0.2 * (1 - d), 0.8, 0.85 + 0.2 * (1 - d));
+      p.translate(w.le.x - w.chord * 0.52, w.le.y - w.chord * w.thick * 0.52 - 0.02, w.le.z);
+      pods.push(p);
+    }
+    pod.dispose();
+    const pf = mergeGeometries(pods);
+    add(pf, m.stab);
+    add(mirrorZ(pf), m.stab);
+  }
+
+  /* ---------- tail ---------- */
+  const fin: Station[] = [];
+  for (let i = 0; i <= 10; i++) {
+    const d = i / 10;
+    fin.push({
+      le: new THREE.Vector3(-3.1 - d * 1.32 * 0.78, 0.3 + d * 1.34, 0),
+      chord: THREE.MathUtils.lerp(1.75, 0.72, Math.pow(d, 0.9)),
+      thick: THREE.MathUtils.lerp(0.115, 0.08, d),
+      bank: PI / 2,
+    });
+  }
+  add(loftSurface(fin), m.fin);
+  const stab: Station[] = [];
+  for (let i = 0; i <= 8; i++) {
+    const d = i / 8;
+    const z = 0.08 + d * 1.72;
+    stab.push({
+      le: new THREE.Vector3(
+        -3.55 - z * Math.tan(THREE.MathUtils.degToRad(34)),
+        0.1 + z * Math.tan(THREE.MathUtils.degToRad(4.5)),
+        z,
+      ),
+      chord: THREE.MathUtils.lerp(1.15, 0.38, d),
+      thick: THREE.MathUtils.lerp(0.095, 0.07, d),
+      bank: 0,
+    });
+  }
+  const stabGeo = loftSurface(stab);
+  add(stabGeo, m.stab);
+  add(mirrorZ(stabGeo), m.stab);
+
+  // Tail-cone APU exhaust, antennas and probes
+  {
+    const e = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.036, 0.14, 20, 1, true).rotateZ(PI / 2), m.exhaust);
+    e.position.set(X0 - 0.02, yc(0), 0);
+    const ant = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.02, 0.1, 8), m.dark);
+    ant.position.set(2.3, R + 0.04, 0);
+    const ant2 = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.014, 0.07, 8), m.dark);
+    ant2.position.set(-0.8, R + 0.03, 0.12);
+    const blister = new THREE.Mesh(new THREE.SphereGeometry(1, 16, 10), m.dark);
+    blister.scale.set(0.18, 0.03, 0.06);
+    blister.position.set(1.05, -R, 0);
+    g.add(e, ant, ant2, blister);
+  }
+  for (const s of [1, -1]) {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.22, 6).rotateZ(PI / 2), m.chrome);
+    const q = pos(0.915, s > 0 ? 1.5 : TAU - 1.5, 0, new THREE.Vector3());
+    p.position.set(q.x + 0.08, q.y, q.z);
+    g.add(p);
+  }
+
+  /* ---------- engines on under-wing pylons ---------- */
+  const engines: THREE.Group[] = [];
+  for (const s of [1, -1]) {
+    const ez = 1.78;
+    const w = wingAt((ez - wz0) / span);
+    const ex = 0.5;
+    const ey = w.le.y - 0.36;
+    const e = buildEngine(m);
+    e.scale.setScalar(0.74);
+    e.position.set(ex, ey, s * ez);
+    g.add(e);
+    engines.push(e);
+    const shape = new THREE.Shape();
+    shape.moveTo(0.3, 0);
+    shape.lineTo(-1.0, 0);
+    shape.lineTo(-1.25, 0.5);
+    shape.lineTo(-0.15, 0.5);
+    shape.closePath();
+    const pg = new THREE.ExtrudeGeometry(shape, {
+      depth: 0.055,
+      bevelEnabled: true,
+      bevelSize: 0.006,
+      bevelThickness: 0.006,
+      bevelSegments: 2,
+    });
+    pg.translate(0, 0, -0.0275);
+    const pylon = new THREE.Mesh(pg, m.nacelle);
+    pylon.position.set(ex, ey + 0.17, s * ez);
+    pylon.castShadow = pylon.receiveShadow = true;
+    g.add(pylon);
+  }
+
+  /* ---------- lights ---------- */
+  const tip = secs[secs.length - 1].le;
+  const lightGeo = new THREE.SphereGeometry(0.032, 12, 8);
+  const navR = new THREE.Mesh(lightGeo, m.red);
+  navR.position.set(tip.x - 0.12, tip.y + 0.02, -(tip.z + 0.02));
+  const navG = new THREE.Mesh(lightGeo, m.green);
+  navG.position.set(tip.x - 0.12, tip.y + 0.02, tip.z + 0.02);
+  const strobeGeo = new THREE.SphereGeometry(0.035, 12, 8);
+  const tailStrobe = new THREE.Mesh(strobeGeo, m.strobe);
+  tailStrobe.position.set(-4.95, 0.55, 0);
+  const tipStrobe = new THREE.Mesh(strobeGeo, m.strobe);
+  tipStrobe.position.set(tip.x - 0.35, tip.y + 0.02, tip.z + 0.01);
+  const tipStrobe2 = tipStrobe.clone();
+  tipStrobe2.position.z = -tipStrobe.position.z;
+  const beaconGeo = new THREE.SphereGeometry(0.04, 12, 8);
+  const beaconTop = new THREE.Mesh(beaconGeo, m.beacon);
+  beaconTop.position.set(0.25, R + 0.012, 0);
+  const beaconLow = new THREE.Mesh(beaconGeo, m.beacon);
+  beaconLow.position.set(-0.3, -R, 0);
+  g.add(navR, navG, tailStrobe, tipStrobe, tipStrobe2, beaconTop, beaconLow);
+
+  return {
+    group: g,
+    update: (time, dt) => {
+      for (const e of engines) (e.userData.fan as THREE.Group).rotation.x += dt * 9;
+      const q = time % 1.6;
+      const on = q < 0.06 || (q > 0.18 && q < 0.24);
+      tailStrobe.visible = tipStrobe.visible = tipStrobe2.visible = on;
+      beaconTop.visible = time % 1.2 < 0.5;
+      beaconLow.visible = (time + 0.6) % 1.2 < 0.5;
+    },
+    setNight: (n) => {
+      m.glass.emissiveIntensity = n * 0.55;
+    },
+    dispose: () => {
+      g.traverse((o) => {
+        const mesh = o as THREE.Mesh;
+        if (mesh.isMesh) mesh.geometry.dispose();
+      });
+      for (const mat of Object.values(m)) {
+        (mat as THREE.MeshStandardMaterial).map?.dispose();
+        mat.dispose();
+      }
+    },
+  };
 }

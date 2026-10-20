@@ -35,28 +35,22 @@ const atmo = (sunElevation: number, sunAzimuth: number, turbidity = 3, rayleigh 
   coverage,
 });
 
-/** Seat-eye view through the over-wing window (starboard, jet space). */
-const WINDOW = v(0.59, 0.153, 0.582);
-const LOOK = v(-0.42, -0.035, 0.9).normalize();
-const SEAT = WINDOW.clone().addScaledVector(LOOK, -0.68);
-
 export const SHOTS: Shot[] = [
-  // 0 — Window seat: looking out over the wing at golden hour
+  // 0 — Welcome: wide rear-quarter view at golden hour
   {
-    camera: SEAT,
-    target: WINDOW.clone().addScaledVector(LOOK, 3),
+    camera: v(-9.5, 1.1, 17.5),
+    target: v(1.2, 0.15, 0),
     up: UP,
-    fov: 42,
-    shiftX: 0.1,
-    shiftY: 0,
+    fov: 32,
+    shiftX: 0.12,
+    shiftY: -0.02,
     jetPosition: v(0, 0, 0),
-    jetRotation: q(0, 0, 0),
+    jetRotation: q(0.02, 0.1, 0.01),
     atmosphere: atmo(5, 225, 8, 2.4),
     exposure: 1.0,
     cloudSpeed: 34,
-    interior: 1,
   },
-  // 1 — Out through the glass to a three-quarter front view
+  // 1 — Three-quarter front view
   {
     camera: v(7.2, 1.3, 11.5),
     target: v(-0.2, 0.2, 0),
@@ -69,8 +63,6 @@ export const SHOTS: Shot[] = [
     atmosphere: atmo(4.5, 150, 8, 2.4),
     exposure: 1.0,
     cloudSpeed: 34,
-    // Straight out through the window before curving round to the nose
-    via: SEAT.clone().addScaledVector(WINDOW.clone().sub(SEAT).normalize(), 3.4),
   },
   // 1 — Design: pure side profile
   {

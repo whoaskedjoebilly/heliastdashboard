@@ -291,7 +291,7 @@ export function Experience() {
                 One continuous <em>line.</em>
               </h2>
               <p className="xp-body xp-rise" style={delay(2)}>
-                A 33° swept wing, blended winglets and an unbroken fuselage profile. Every surface was drawn to move
+                A 31° swept wing, raked wingtips and an unbroken fuselage profile. Every surface was drawn to move
                 through air cleanly — and to look like it.
               </p>
               <dl className="xp-meta xp-rise" style={delay(3)}>

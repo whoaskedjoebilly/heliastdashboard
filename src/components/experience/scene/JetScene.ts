@@ -5,7 +5,6 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
 import { createAtmosphere, sunDirection, sunlight, MOON_DIR, type AtmosphereState } from "./atmosphere";
-import { createInterior } from "./interior";
 import { createJet } from "./jet";
 import { SHOTS, type Shot } from "./shots";
 
@@ -89,7 +88,6 @@ export class JetScene {
   private quality = 2;
   private downgraded = false;
   private fastWindows = 0;
-  private interiorWasVisible = false;
   private timer = new THREE.Timer();
   private raf = 0;
   private width = 1;
@@ -108,8 +106,6 @@ export class JetScene {
   private tmpVec = new THREE.Vector3();
   private tmpVec2 = new THREE.Vector3();
   private tmpVec3 = new THREE.Vector3();
-  private tmpColor2 = new THREE.Color();
-  private interior = createInterior();
   private tmpColor = new THREE.Color();
   private moonColor = new THREE.Color(0.55, 0.65, 0.9);
 
@@ -172,7 +168,7 @@ export class JetScene {
     // Rim light from the true sun (or moon) direction
     this.scene.add(this.sun, this.sun.target, this.bounce);
 
-    this.jetRig.add(this.jet.group, this.interior.group);
+    this.jetRig.add(this.jet.group);
     this.scene.add(this.jetRig);
 
     this.applyShot(0, 0);
@@ -425,18 +421,6 @@ export class JetScene {
     this.camera.setViewOffset(w, h, -c.shiftX * w, c.shiftY * h, w, h);
     this.camera.updateProjectionMatrix();
 
-    // Cabin interior: only drawn while the camera is in or near it
-    this.interior.setShade(0.16 + 0.84 * introE);
-    const nearCabin = inCabin > 0.001 || this.camera.position.distanceTo(this.jetRig.position) < 3;
-    const sunNow = sunlight(c.atmo.sunElevation, this.tmpColor2);
-    this.interior.update(this.tmpColor2, sunNow, this.atmosphere.uniforms.uNight.value, nearCabin);
-    if (nearCabin !== this.interiorWasVisible) {
-      // Cabin geometry joins or leaves the shadow casters
-      this.interiorWasVisible = nearCabin;
-      this.renderer.shadowMap.needsUpdate = true;
-    }
-    // The window shade moves during the intro; its sunlight shadow follows it
-    if (nearCabin && introE < 1) this.renderer.shadowMap.needsUpdate = true;
     if (this.ao.enabled) this.ao.updateGtaoMaterial({ radius: THREE.MathUtils.lerp(0.45, 0.05, inCabin) });
 
     this.jet.update(time, dt);
@@ -485,7 +469,6 @@ export class JetScene {
     cancelAnimationFrame(this.raf);
     this.timer.dispose();
     this.jet.dispose();
-    this.interior.dispose();
     this.atmosphere.dispose();
     this.skyTarget.dispose();
     this.composer.dispose();

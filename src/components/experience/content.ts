@@ -13,7 +13,7 @@ export const NAV = [
   { label: "Range", chapter: 6 },
 ];
 
-export const CHAPTER_NAMES = ["Window seat", "The aircraft", "Design", "Power", "Cabin", "Performance", "Range", "Enquire"];
+export const CHAPTER_NAMES = ["Welcome", "The aircraft", "Design", "Power", "Cabin", "Performance", "Range", "Enquire"];
 
 export const SPECS = [
   { value: 7700, format: (n: number) => Math.round(n).toLocaleString("en-US"), unit: "nm", label: "Maximum range" },
