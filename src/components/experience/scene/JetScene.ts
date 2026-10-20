@@ -72,7 +72,7 @@ export class JetScene {
   private composer: EffectComposer;
   private ao: GTAOPass;
   private bloom: UnrealBloomPass;
-  private cubeTarget = new THREE.WebGLCubeRenderTarget(128, { type: THREE.HalfFloatType });
+  private cubeTarget = new THREE.WebGLCubeRenderTarget(64, { type: THREE.HalfFloatType });
   private cubeCamera: THREE.CubeCamera;
   private pmrem: THREE.PMREMGenerator;
   private envTarget: THREE.WebGLRenderTarget | null = null;
@@ -85,7 +85,11 @@ export class JetScene {
   private bounce = new THREE.HemisphereLight(0xffffff, 0xffffff, 0.9);
   private frameTimes = 0;
   private frameCount = 0;
-  private quality = 1;
+  /** Index into TIERS. Everyone starts on medium; fast machines are promoted to high. */
+  private quality = 2;
+  private downgraded = false;
+  private fastWindows = 0;
+  private interiorWasVisible = false;
   private timer = new THREE.Timer();
   private raf = 0;
   private width = 1;
@@ -121,6 +125,10 @@ export class JetScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    // The key light rides with the aircraft, so its shadows never change relative to it:
+    // draw the shadow map once and reuse it instead of re-rendering it every frame
+    this.renderer.shadowMap.autoUpdate = false;
+    this.renderer.shadowMap.needsUpdate = true;
 
     this.skyTarget = new THREE.WebGLRenderTarget(2, 2, {
       type: THREE.HalfFloatType,
@@ -133,12 +141,12 @@ export class JetScene {
     // Post: MSAA HDR buffer → ambient occlusion → lens bloom → tone map
     this.composer = new EffectComposer(
       this.renderer,
-      new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, samples: 4 }),
+      new THREE.WebGLRenderTarget(2, 2, { type: THREE.HalfFloatType, samples: 2 }),
     );
     this.composer.addPass(new RenderPass(this.scene, this.camera));
     this.ao = new GTAOPass(this.scene, this.camera, 2, 2);
     this.ao.blendIntensity = 0.85;
-    this.ao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 2, thickness: 1.2, scale: 1.1, samples: 16 });
+    this.ao.updateGtaoMaterial({ radius: 0.45, distanceExponent: 2, thickness: 1.2, scale: 1.1, samples: 8 });
     this.composer.addPass(this.ao);
     this.bloom = new UnrealBloomPass(new THREE.Vector2(2, 2), 0.12, 0.35, 6);
     this.composer.addPass(this.bloom);
@@ -149,7 +157,7 @@ export class JetScene {
     // Key light: a flattering front-quarter light that takes the sun's colour
     this.key.position.set(5, 6, 11);
     this.key.castShadow = true;
-    this.key.shadow.mapSize.set(4096, 4096);
+    this.key.shadow.mapSize.set(2048, 2048);
     this.key.shadow.bias = -0.0002;
     this.key.shadow.normalBias = 0.015;
     this.key.shadow.radius = 3;
@@ -236,39 +244,73 @@ export class JetScene {
   resize(width: number, height: number) {
     this.width = width;
     this.height = height;
-    const dpr = Math.min(window.devicePixelRatio, width < 800 ? 1.5 : 2);
-    this.renderer.setPixelRatio(dpr);
-    this.renderer.setSize(width, height, false);
-    this.composer.setPixelRatio(dpr);
-    this.composer.setSize(width, height);
-    // Clouds are soft, so a reduced-resolution sky pass is indistinguishable and far cheaper
     this.applyQuality();
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
   }
 
+  /**
+   * Render settings per quality tier. Resolution is the dominant cost on high-density
+   * screens, so pixel ratio is capped well below the device's; clouds are soft, so their
+   * pass runs at a fraction of screen resolution.
+   */
+  private static TIERS = [
+    // lowest: renders below native resolution as a last resort
+    { dpr: 0.75, sky: 0.25, steps: 18, ao: false, bloom: false, shadow: 1024 },
+    // low
+    { dpr: 1, sky: 0.3, steps: 22, ao: false, bloom: false, shadow: 1024 },
+    // medium
+    { dpr: 1.25, sky: 0.36, steps: 28, ao: false, bloom: true, shadow: 2048 },
+    // high
+    { dpr: 1.5, sky: 0.42, steps: 34, ao: true, bloom: true, shadow: 2048 },
+  ];
+
   private applyQuality() {
+    const tier = JetScene.TIERS[this.quality];
     const w = this.width;
-    const skyScale = (w < 800 ? 0.45 : 0.55) * this.quality;
-    this.skyTarget.setSize(Math.ceil(w * skyScale), Math.ceil(this.height * skyScale));
-    this.atmosphere.uniforms.uSteps.value = Math.round((w < 800 ? 36 : 48) * (0.5 + 0.5 * this.quality));
+    const h = this.height;
+    const dpr = Math.min(window.devicePixelRatio || 1, tier.dpr);
+    this.renderer.setPixelRatio(dpr);
+    this.renderer.setSize(w, h, false);
+    this.composer.setPixelRatio(dpr);
+    this.composer.setSize(w, h);
+    this.skyTarget.setSize(Math.ceil(w * tier.sky), Math.ceil(h * tier.sky));
+    this.atmosphere.uniforms.uSteps.value = tier.steps;
+    this.ao.enabled = tier.ao;
+    this.bloom.enabled = tier.bloom;
+    if (this.key.shadow.mapSize.x !== tier.shadow) {
+      this.key.shadow.mapSize.set(tier.shadow, tier.shadow);
+      this.key.shadow.map?.dispose();
+      this.key.shadow.map = null;
+    }
+    this.renderer.shadowMap.needsUpdate = true;
   }
 
-  /** Steps the cloud resolution down on slower GPUs so scrolling stays smooth. */
+  /** Drops a quality tier as soon as frame time shows sustained lag. */
   private adaptQuality(dt: number) {
+    // Ignore hitches (shader compiles, tab switches) — they are not steady-state cost
+    if (dt > 0.25) return;
     this.frameTimes += dt;
     this.frameCount++;
-    if (this.frameCount < 90) return;
+    if (this.frameCount < 40) return;
     const avg = this.frameTimes / this.frameCount;
     this.frameTimes = 0;
     this.frameCount = 0;
-    if (avg > 1 / 42 && this.quality > 0.55) {
-      this.quality = Math.max(0.55, this.quality - 0.15);
+    if (avg > 1 / 48 && this.quality > 0) {
+      this.quality--;
+      this.downgraded = true;
       this.applyQuality();
-    } else if (avg > 1 / 42 && this.ao.enabled) {
-      // Last resort on very slow GPUs: drop ambient occlusion
-      this.ao.enabled = false;
+      return;
     }
+    // Promote once to the top tier only after two consistently fast windows
+    const top = JetScene.TIERS.length - 1;
+    if (!this.downgraded && this.quality < top && avg < 1 / 58) {
+      if (++this.fastWindows >= 2) {
+        this.quality++;
+        this.fastWindows = 0;
+        this.applyQuality();
+      }
+    } else this.fastWindows = 0;
   }
 
   start() {
@@ -292,11 +334,12 @@ export class JetScene {
     if (!this.envDirty || this.envCooldown > 0) return;
     this.lastEnvKey = key;
     this.envDirty = false;
-    this.envCooldown = 8;
+    // Reflections change slowly; refreshing rarely avoids stutters while scrolling
+    this.envCooldown = 45;
 
     const u = this.atmosphere.uniforms;
     const steps = u.uSteps.value;
-    u.uSteps.value = 24;
+    u.uSteps.value = 12;
     this.cubeCamera.position.copy(this.jetRig.position);
     this.atmosphere.dome.position.copy(this.jetRig.position);
     this.cubeCamera.update(this.renderer, this.atmosphere.scene);
@@ -387,7 +430,14 @@ export class JetScene {
     const nearCabin = inCabin > 0.001 || this.camera.position.distanceTo(this.jetRig.position) < 3;
     const sunNow = sunlight(c.atmo.sunElevation, this.tmpColor2);
     this.interior.update(this.tmpColor2, sunNow, this.atmosphere.uniforms.uNight.value, nearCabin);
-    this.ao.updateGtaoMaterial({ radius: THREE.MathUtils.lerp(0.45, 0.05, inCabin) });
+    if (nearCabin !== this.interiorWasVisible) {
+      // Cabin geometry joins or leaves the shadow casters
+      this.interiorWasVisible = nearCabin;
+      this.renderer.shadowMap.needsUpdate = true;
+    }
+    // The window shade moves during the intro; its sunlight shadow follows it
+    if (nearCabin && introE < 1) this.renderer.shadowMap.needsUpdate = true;
+    if (this.ao.enabled) this.ao.updateGtaoMaterial({ radius: THREE.MathUtils.lerp(0.45, 0.05, inCabin) });
 
     this.jet.update(time, dt);
 

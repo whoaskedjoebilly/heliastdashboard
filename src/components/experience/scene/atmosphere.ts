@@ -186,6 +186,11 @@ const fragmentShader = /* glsl */ `
   float jetShadow(vec3 p, vec3 lightDir) {
     vec3 lp = (uJetInv * vec4(p, 1.0)).xyz;
     vec3 ld = normalize(mat3(uJetInv) * lightDir);
+    // Cheap reject: the sun ray must pass within the aircraft's bounding sphere
+    float tc = -dot(lp, ld);
+    if (tc < 0.0) return 0.0;
+    vec3 closest = lp + ld * tc;
+    if (dot(closest, closest) > 36.0) return 0.0;
     float s = ellipsoidShadow(lp, ld, vec3(0.0), vec3(1, 0, 0), vec3(0, 1, 0), vec3(0, 0, 1), vec3(5.0, 0.62, 0.62));
     // Swept wings as long flattened ellipsoids along each wing's span
     vec3 spanR = normalize(vec3(-0.62, 0.05, 1.0));
@@ -261,7 +266,7 @@ const fragmentShader = /* glsl */ `
     float sigma = 0.16;
     float firstHit = -1.0;
 
-    for (int i = 0; i < 64; i++) {
+    for (int i = 0; i < 40; i++) {
       if (float(i) >= steps || T < 0.02) break;
       vec3 p = ro + rd * t;
       float dCheap = density(p, false);
@@ -271,12 +276,12 @@ const fragmentShader = /* glsl */ `
           if (firstHit < 0.0) firstHit = t;
           // light march toward the sun
           float od = 0.0;
-          float ls = 5.0;
+          float ls = 6.0;
           vec3 lp = p;
-          for (int j = 0; j < 4; j++) {
+          for (int j = 0; j < 3; j++) {
             lp += lightDir * ls;
             od += density(lp, false) * ls;
-            ls *= 1.8;
+            ls *= 2.2;
           }
           float h = clamp((p.y - CLOUD_BASE) / (CLOUD_TOP - CLOUD_BASE), 0.0, 1.0);
           float beer = exp(-od * sigma * 0.9) + 0.25 * exp(-od * sigma * 0.2);

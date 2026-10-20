@@ -45,7 +45,7 @@ export function Experience() {
   const [loaded, setLoaded] = useState(false);
   const [active, setActive] = useState(0);
   const [seen, setSeen] = useState<Set<number>>(() => new Set());
-  const [scrollFrac, setScrollFrac] = useState(0);
+  const railRef = useRef<HTMLSpanElement>(null);
   const [sent, setSent] = useState(false);
   const [webgl, setWebgl] = useState(true);
 
@@ -155,7 +155,8 @@ export function Experience() {
         return next;
       });
       const max = document.documentElement.scrollHeight - vh;
-      setScrollFrac(max > 0 ? y / max : 0);
+      // Progress bar is updated directly: re-rendering the page every scroll frame is wasted work
+      if (railRef.current) railRef.current.style.transform = `scaleY(${max > 0 ? y / max : 0})`;
     };
     const onScroll = () => {
       if (!raf) raf = requestAnimationFrame(update);
@@ -232,7 +233,7 @@ export function Experience() {
         </div>
         <div className="xp-rail__name">{CHAPTER_NAMES[active]}</div>
         <div className="xp-rail__track">
-          <span style={{ transform: `scaleY(${scrollFrac})` }} />
+          <span ref={railRef} />
         </div>
       </aside>
 

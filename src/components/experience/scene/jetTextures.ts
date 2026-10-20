@@ -585,8 +585,10 @@ export function paintWingColor(mainStations: number, totalStations: number) {
   const label = (text: string, xc: number, s: number, size: number, color: string) => {
     c.save();
     c.translate(px(xc), py(s));
-    // text runs spanwise (canvas y), reading from the fuselage outward
+    // text runs spanwise (canvas y), reading from the fuselage outward; the wing's
+    // texture space is mirrored relative to the upper skin, so flip to read correctly
     c.rotate(-Math.PI / 2);
+    c.scale(-1, 1);
     c.fillStyle = color;
     c.font = `600 ${size}px "Helvetica Neue", Arial, sans-serif`;
     c.textAlign = "center";
