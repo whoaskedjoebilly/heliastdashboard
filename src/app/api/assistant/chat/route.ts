@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/anthropic/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { buildClientDataDigest, buildDemoDataDigest } from "@/lib/assistant/data-context";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 60;
 
@@ -85,23 +86,36 @@ interface ChatMessage {
   content: string;
 }
 
+// Input limits — every request costs real money on the Anthropic account, so
+// bound what a single request can carry.
+const MAX_MESSAGES = 30;
+const MAX_MESSAGE_CHARS = 4000;
+const MAX_TOTAL_CHARS = 40000;
+const DEMO_MAX_MESSAGES = 10;
+
+function parseMessages(raw: unknown, maxMessages: number): ChatMessage[] | null {
+  if (!Array.isArray(raw) || raw.length === 0 || raw.length > maxMessages) return null;
+  let total = 0;
+  const out: ChatMessage[] = [];
+  for (const m of raw) {
+    if (!m || typeof m !== "object") return null;
+    const { role, content } = m as { role?: unknown; content?: unknown };
+    if ((role !== "user" && role !== "assistant") || typeof content !== "string") return null;
+    if (content.length === 0 || content.length > MAX_MESSAGE_CHARS) return null;
+    total += content.length;
+    out.push({ role, content });
+  }
+  if (total > MAX_TOTAL_CHARS || out[out.length - 1].role !== "user") return null;
+  return out;
+}
+
+// Details go to the server log only — never echo provider/internal error text
+// (key status, billing state, stack hints) back to the browser.
 function describeError(err: unknown): { status: number; message: string } {
-  if (err instanceof Anthropic.AuthenticationError) {
-    return { status: 500, message: "Anthropic rejected the API key — check ANTHROPIC_API_KEY is correct and active." };
-  }
-  if (err instanceof Anthropic.PermissionDeniedError) {
-    return { status: 500, message: "Anthropic denied this request — check the API key's org has billing/credits set up." };
-  }
   if (err instanceof Anthropic.RateLimitError) {
-    return { status: 429, message: "Rate limited by Anthropic — try again in a moment." };
+    return { status: 429, message: "Athena is busy right now — try again in a moment." };
   }
-  if (err instanceof Anthropic.APIError) {
-    return { status: err.status ?? 502, message: `Anthropic API error: ${err.message}` };
-  }
-  if (err instanceof Error) {
-    return { status: 500, message: err.message };
-  }
-  return { status: 500, message: "Unknown error" };
+  return { status: 500, message: "Athena hit a problem answering that. Please try again." };
 }
 
 export async function POST(req: Request) {
@@ -110,15 +124,27 @@ export async function POST(req: Request) {
       return new Response("ANTHROPIC_API_KEY is not configured", { status: 500 });
     }
 
-    const body = (await req.json()) as { messages?: ChatMessage[]; demo?: boolean };
-    const messages = body.messages;
-    if (!messages || messages.length === 0 || messages[messages.length - 1].role !== "user") {
-      return new Response("messages must be a non-empty array ending in a user message", { status: 400 });
+    let body: { messages?: unknown; demo?: unknown };
+    try {
+      body = await req.json();
+    } catch {
+      return new Response("Invalid JSON body", { status: 400 });
+    }
+    const isDemo = body.demo === true;
+    const messages = parseMessages(body.messages, isDemo ? DEMO_MAX_MESSAGES : MAX_MESSAGES);
+    if (!messages) {
+      return new Response("Invalid messages", { status: 400 });
+    }
+
+    // Demo mode is unauthenticated, so it gets a much tighter per-IP limit.
+    const ip = clientIp(req);
+    if (isDemo ? !rateLimit(`demo:${ip}`, 8, 10 * 60_000) : !rateLimit(`ip:${ip}`, 40, 10 * 60_000)) {
+      return new Response("Too many requests — slow down.", { status: 429 });
     }
 
     let digest: string;
 
-    if (body.demo) {
+    if (isDemo) {
       digest = buildDemoDataDigest();
     } else {
       if (!supabaseAdmin) {
@@ -132,6 +158,9 @@ export async function POST(req: Request) {
       const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
       if (userError || !userData.user) {
         return new Response("Invalid session", { status: 401 });
+      }
+      if (!rateLimit(`user:${userData.user.id}`, 30, 10 * 60_000)) {
+        return new Response("Too many requests — slow down.", { status: 429 });
       }
       const { data: client, error: clientError } = await supabaseAdmin
         .from("dashboard_clients")
@@ -155,7 +184,7 @@ export async function POST(req: Request) {
     // shared/prompt-caching.md § "robust combination for agent loops".
     const claudeStream = anthropic.messages.stream({
       model: "claude-opus-5",
-      max_tokens: 8000,
+      max_tokens: isDemo ? 1500 : 4000,
       cache_control: { type: "ephemeral" },
       system: [
         {
@@ -188,7 +217,7 @@ export async function POST(req: Request) {
           closed = true;
           const { message } = describeError(err);
           console.error("Claude stream error:", err);
-          controller.enqueue(encoder.encode(`\n\n[Error: ${message}]`));
+          controller.enqueue(encoder.encode(`\n\n[${message}]`));
           controller.close();
         }
       },

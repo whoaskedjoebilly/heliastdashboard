@@ -1,15 +1,35 @@
-// Guards for the admin-only connect routes (dashboard-live-setup.md Phase 6).
-// These routes are never linked from the client dashboard — you navigate to
-// them directly. Protection is a shared secret rather than a full session
-// check: set ADMIN_ACCESS_TOKEN in Vercel and pass it as ?token=... when you
-// visit /api/admin/connect/* yourself.
+import { timingSafeEqual, createHash } from "node:crypto";
+
+// Guards for the admin-only routes.
+//
+// Compared in constant time (hashing first so lengths always match) so the
+// secret can't be recovered by timing a long run of guesses.
+function safeEqual(a: string | null, b: string | undefined): boolean {
+  if (!a || !b) return false;
+  const ha = createHash("sha256").update(a).digest();
+  const hb = createHash("sha256").update(b).digest();
+  return timingSafeEqual(ha, hb);
+}
+
+/**
+ * Admin check for routes an admin opens in a browser (the OAuth "connect"
+ * links), where a header can't be set — accepts ?token= OR x-admin-token.
+ * A token in a URL lands in browser history and server logs, so rotate
+ * ADMIN_ACCESS_TOKEN periodically. Never use this for routes that take
+ * other secrets in the request (see isAdminHeaderRequest).
+ */
 export function isAdminRequest(req: Request): boolean {
   const configured = process.env.ADMIN_ACCESS_TOKEN;
   if (!configured) return false;
   const url = new URL(req.url);
-  const fromQuery = url.searchParams.get("token");
-  const fromHeader = req.headers.get("x-admin-token");
-  return fromQuery === configured || fromHeader === configured;
+  return safeEqual(url.searchParams.get("token"), configured) || safeEqual(req.headers.get("x-admin-token"), configured);
+}
+
+/** Header-only admin check — the token is never accepted from the URL. */
+export function isAdminHeaderRequest(req: Request): boolean {
+  const configured = process.env.ADMIN_ACCESS_TOKEN;
+  if (!configured) return false;
+  return safeEqual(req.headers.get("x-admin-token"), configured);
 }
 
 /** Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` when CRON_SECRET
@@ -17,5 +37,6 @@ export function isAdminRequest(req: Request): boolean {
 export function isCronRequest(req: Request): boolean {
   const configured = process.env.CRON_SECRET;
   if (!configured) return false;
-  return req.headers.get("authorization") === `Bearer ${configured}`;
+  const header = req.headers.get("authorization");
+  return safeEqual(header, `Bearer ${configured}`);
 }

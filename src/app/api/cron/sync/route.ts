@@ -1,5 +1,5 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { isAdminRequest, isCronRequest } from "@/lib/admin-auth";
+import { isAdminHeaderRequest, isCronRequest } from "@/lib/admin-auth";
 import { syncGa4, syncGoogleAds, syncGsc, syncMetaAds, syncMetaPageStats, syncShopify, syncTiktok, type IntegrationRow } from "@/lib/sync/providers";
 
 // Daily sync job (dashboard-live-setup.md Phase 7) — configured to run via
@@ -11,7 +11,7 @@ import { syncGa4, syncGoogleAds, syncGsc, syncMetaAds, syncMetaPageStats, syncSh
 // admin-only route in this app works — reject anything else so this can't
 // be triggered by just anyone hitting the URL.
 export async function GET(req: Request) {
-  if (!isCronRequest(req) && !isAdminRequest(req)) {
+  if (!isCronRequest(req) && !isAdminHeaderRequest(req)) {
     return new Response("Not authorized", { status: 401 });
   }
   if (!supabaseAdmin) {

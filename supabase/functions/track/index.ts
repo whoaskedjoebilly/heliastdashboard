@@ -64,8 +64,21 @@ Deno.serve(async (req: Request) => {
 
   const { client_id, page, location, lat, lng, device } = body;
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!client_id || !uuidPattern.test(client_id) || !page) {
-    return new Response(JSON.stringify({ error: "client_id (uuid) and page are required" }), {
+  // Public endpoint: validate type AND size of every field so a caller can't
+  // stuff arbitrary data into the database.
+  const okStr = (v: unknown, max: number) => typeof v === "string" && v.length <= max;
+  const okNum = (v: unknown, lo: number, hi: number) => typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi;
+  if (
+    typeof client_id !== "string" ||
+    !uuidPattern.test(client_id) ||
+    !okStr(page, 500) ||
+    !page ||
+    (location != null && !okStr(location, 120)) ||
+    (device != null && !okStr(device, 40)) ||
+    (lat != null && !okNum(lat, -90, 90)) ||
+    (lng != null && !okNum(lng, -180, 180))
+  ) {
+    return new Response(JSON.stringify({ error: "Invalid payload" }), {
       status: 400,
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
     });
@@ -77,6 +90,21 @@ Deno.serve(async (req: Request) => {
   if (!client) {
     return new Response(JSON.stringify({ error: "Unknown client_id" }), {
       status: 404,
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
+  }
+
+  // Flood guard: a single client can't have more than 600 live-visitor rows
+  // in the 2-minute window — beyond that, drop silently instead of writing.
+  const windowStart = new Date(Date.now() - 2 * 60 * 1000).toISOString();
+  const { count } = await supabase
+    .from("dashboard_live_visitors")
+    .select("id", { count: "exact", head: true })
+    .eq("client_id", client_id)
+    .gte("entered_at", windowStart);
+  if ((count ?? 0) >= 600) {
+    return new Response(JSON.stringify({ ok: true }), {
+      status: 200,
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
     });
   }
@@ -102,7 +130,8 @@ Deno.serve(async (req: Request) => {
     device: device ?? null,
   });
   if (insertError) {
-    return new Response(JSON.stringify({ error: insertError.message }), {
+    console.error("track insert failed:", insertError.message);
+    return new Response(JSON.stringify({ error: "Could not record visit" }), {
       status: 500,
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
     });
