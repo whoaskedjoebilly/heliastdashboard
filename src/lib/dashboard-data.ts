@@ -7,6 +7,7 @@
 // to "not configured" when Supabase isn't wired up (see supabase/client.ts).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase/client";
+import { isUuid } from "./uuid";
 import type {
   CampaignRow,
   ChannelSplit,
@@ -23,6 +24,8 @@ export interface DashboardClient {
   name: string;
   plan: string | null;
   created_at: string;
+  /** Null until supabase/security-hardening.sql has been applied. */
+  tracking_key: string | null;
 }
 
 export interface IntegrationStatus {
@@ -49,17 +52,50 @@ export function useDashboardClient() {
     if (!supabase) {
       return;
     }
+    const db = supabase;
     let cancelled = false;
     (async () => {
       setLoading(true);
-      const { data, error } = await supabase
+      // Resolve the signed-in user first and scope the read to that id.
+      // RLS already restricts this table; the filter is a second check so a
+      // missing policy cannot return some other customer's row.
+      const { data: userData, error: userError } = await db.auth.getUser();
+      if (cancelled) return;
+      const uid = userData.user?.id;
+      if (userError || !uid) {
+        setClient(null);
+        setLoading(false);
+        return;
+      }
+      const withKey = await db
         .from("dashboard_clients")
-        .select("id, name, plan, created_at")
+        .select("id, name, plan, created_at, tracking_key")
+        .eq("owner_user_id", uid)
         .limit(1)
         .maybeSingle();
       if (cancelled) return;
-      if (error) console.error("Failed to load dashboard client", error);
-      setClient((data as DashboardClient) ?? null);
+      if (!withKey.error) {
+        setClient((withKey.data as DashboardClient) ?? null);
+        setLoading(false);
+        return;
+      }
+      // The column arrives with security-hardening.sql. Until that migration
+      // is applied, fall back so the rest of the dashboard still loads.
+      if (!/tracking_key/i.test(withKey.error.message)) {
+        console.error("Failed to load dashboard client", withKey.error);
+        setClient(null);
+        setLoading(false);
+        return;
+      }
+      const withoutKey = await db
+        .from("dashboard_clients")
+        .select("id, name, plan, created_at")
+        .eq("owner_user_id", uid)
+        .limit(1)
+        .maybeSingle();
+      if (cancelled) return;
+      if (withoutKey.error) console.error("Failed to load dashboard client", withoutKey.error);
+      setClient(withoutKey.data ? { ...(withoutKey.data as Omit<DashboardClient, "tracking_key">), tracking_key: null } : null);
       setLoading(false);
     })();
     return () => {
@@ -649,7 +685,7 @@ export function useLiveVisitors(clientId: string | null) {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    if (!supabase || !clientId) {
+    if (!supabase || !clientId || !isUuid(clientId)) {
       return;
     }
     let cancelled = false;
@@ -798,7 +834,7 @@ export function useSavedReports(clientId: string | null) {
   const saveReport = useCallback(
     async (title: string, prompt: string, content: string) => {
       if (!supabase || !clientId) return { error: "Not signed in" };
-      const { error } = await supabase.from("dashboard_reports").insert({ client_id: clientId, title, prompt, content });
+      const { error } = await supabase.from("dashboard_reports").insert({ title, prompt, content, client_id: clientId });
       if (error) return { error: error.message };
       await refresh();
       return { error: null };
@@ -808,12 +844,12 @@ export function useSavedReports(clientId: string | null) {
 
   const deleteReport = useCallback(
     async (id: string) => {
-      if (!supabase) return;
-      const { error } = await supabase.from("dashboard_reports").delete().eq("id", id);
+      if (!supabase || !clientId) return;
+      const { error } = await supabase.from("dashboard_reports").delete().eq("id", id).eq("client_id", clientId);
       if (error) console.error("Failed to delete report", error);
       await refresh();
     },
-    [refresh]
+    [clientId, refresh]
   );
 
   return { reports, loading, saveReport, deleteReport };
@@ -859,7 +895,7 @@ export function useCustomReports(clientId: string | null) {
   const saveCustomReport = useCallback(
     async (title: string, config: ReportConfig) => {
       if (!supabase || !clientId) return { error: "Not signed in" };
-      const { error } = await supabase.from("dashboard_custom_reports").insert({ client_id: clientId, title, config });
+      const { error } = await supabase.from("dashboard_custom_reports").insert({ title, config, client_id: clientId });
       if (error) return { error: error.message };
       await refresh();
       return { error: null };
@@ -869,12 +905,12 @@ export function useCustomReports(clientId: string | null) {
 
   const deleteCustomReport = useCallback(
     async (id: string) => {
-      if (!supabase) return;
-      const { error } = await supabase.from("dashboard_custom_reports").delete().eq("id", id);
+      if (!supabase || !clientId) return;
+      const { error } = await supabase.from("dashboard_custom_reports").delete().eq("id", id).eq("client_id", clientId);
       if (error) console.error("Failed to delete custom report", error);
       await refresh();
     },
-    [refresh]
+    [clientId, refresh]
   );
 
   return { reports, loading, saveCustomReport, deleteCustomReport };

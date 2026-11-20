@@ -1,11 +1,11 @@
 import { createHmac, timingSafeEqual } from "crypto";
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { decodeOAuthState } from "@/lib/oauth-state";
+import { logProviderFailure, noStoreResponse, readOAuthCallback } from "@/lib/oauth-callback";
 
 // Step 2 of Shopify OAuth — verifies the request really came from Shopify
 // (HMAC over the query params, per Shopify's install-request verification
 // docs) before trusting the `shop` domain it names, then exchanges the code
-// for a permanent Admin API access token.
+// for a permanent Admin API access token. client_id comes from signed state.
 const SHOPIFY_SHOP_RE = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i;
 
 function verifyShopifyHmac(url: URL, secret: string): boolean {
@@ -24,22 +24,9 @@ function verifyShopifyHmac(url: URL, secret: string): boolean {
 
 export async function GET(req: Request) {
   const url = new URL(req.url);
-  const code = url.searchParams.get("code");
   const shop = url.searchParams.get("shop");
-  const state = decodeOAuthState(url.searchParams.get("state"));
-  const clientId = state?.clientId ?? null;
-
-  if (!code || !shop || !clientId) {
-    return new Response("Missing code, shop, or state (client_id) in callback", { status: 400 });
-  }
-  if (!SHOPIFY_SHOP_RE.test(shop)) {
-    return new Response("Invalid shop domain in callback", { status: 400 });
-  }
-  if (state?.accountId && state.accountId !== shop) {
-    return new Response("Shop domain doesn't match the one this flow was started for", { status: 400 });
-  }
-  if (!supabaseAdmin) {
-    return new Response("SUPABASE_SERVICE_ROLE_KEY is not configured", { status: 500 });
+  if (!shop || !SHOPIFY_SHOP_RE.test(shop)) {
+    return noStoreResponse("Invalid shop domain in callback", 400);
   }
 
   const apiKey = process.env.SHOPIFY_API_KEY;
@@ -48,7 +35,14 @@ export async function GET(req: Request) {
     return new Response("SHOPIFY_API_KEY / SHOPIFY_API_SECRET are not configured", { status: 500 });
   }
   if (!verifyShopifyHmac(url, apiSecret)) {
-    return new Response("Invalid HMAC signature — this request didn't come from Shopify", { status: 401 });
+    return noStoreResponse("Invalid HMAC signature — this request didn't come from Shopify", 401);
+  }
+
+  const parsed = await readOAuthCallback(req);
+  if (!parsed.ok) return parsed.response;
+  const { origin, code, state } = parsed.value;
+  if (state.accountId && state.accountId !== shop) {
+    return noStoreResponse("Shop domain doesn't match the one this flow was started for", 400);
   }
 
   const tokenRes = await fetch(`https://${shop}/admin/oauth/access_token`, {
@@ -56,17 +50,14 @@ export async function GET(req: Request) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ client_id: apiKey, client_secret: apiSecret, code }),
   });
-  if (!tokenRes.ok) {
-    const detail = await tokenRes.text();
-    return new Response(`Failed to exchange code for token: ${detail}`, { status: 502 });
-  }
+  if (!tokenRes.ok) return logProviderFailure(tokenRes, "Failed to exchange the authorization code");
   const { access_token } = (await tokenRes.json()) as { access_token: string };
 
   // Shopify's offline access tokens (this flow) don't expire and have no
   // refresh token — re-running the connect flow is how you'd rotate one.
-  const { error } = await supabaseAdmin.from("dashboard_client_integrations").upsert(
+  const { error } = await supabaseAdmin!.from("dashboard_client_integrations").upsert(
     {
-      client_id: clientId,
+      client_id: state.clientId,
       platform: "shopify",
       access_token,
       refresh_token: null,
@@ -77,8 +68,9 @@ export async function GET(req: Request) {
     { onConflict: "client_id,platform" }
   );
   if (error) {
-    return new Response(`Failed to store integration: ${error.message}`, { status: 500 });
+    console.error("Failed to store shopify integration", error.message);
+    return new Response("Failed to store the connection.", { status: 500 });
   }
 
-  return Response.redirect(`${url.origin}/?connected=shopify`);
+  return Response.redirect(`${origin}/?connected=shopify`);
 }

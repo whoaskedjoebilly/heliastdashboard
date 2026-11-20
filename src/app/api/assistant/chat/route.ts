@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/anthropic/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
 import { buildClientDataDigest, buildDemoDataDigest } from "@/lib/assistant/data-context";
+import { clientIp, rateLimit } from "@/lib/rate-limit";
 
 export const maxDuration = 60;
 
@@ -85,6 +86,30 @@ interface ChatMessage {
   content: string;
 }
 
+const MAX_BODY_BYTES = 100_000;
+const MAX_MESSAGES = 20;
+const MAX_MESSAGE_CHARS = 4_000;
+const DEMO_WINDOW_MS = 10 * 60 * 1000;
+const DEMO_LIMIT = 8;
+const AUTHED_WINDOW_MS = 10 * 60 * 1000;
+const AUTHED_LIMIT = 30;
+
+function parseMessages(input: unknown): ChatMessage[] | null {
+  if (!Array.isArray(input) || input.length === 0 || input.length > MAX_MESSAGES) return null;
+  const messages: ChatMessage[] = [];
+  for (const entry of input) {
+    if (!entry || typeof entry !== "object") return null;
+    const role = (entry as { role?: unknown }).role;
+    const content = (entry as { content?: unknown }).content;
+    if ((role !== "user" && role !== "assistant") || typeof content !== "string") return null;
+    const trimmed = content.trim();
+    if (!trimmed || trimmed.length > MAX_MESSAGE_CHARS) return null;
+    messages.push({ role, content: trimmed });
+  }
+  if (messages[messages.length - 1].role !== "user") return null;
+  return messages;
+}
+
 function describeError(err: unknown): { status: number; message: string } {
   if (err instanceof Anthropic.AuthenticationError) {
     return { status: 500, message: "Anthropic rejected the API key — check ANTHROPIC_API_KEY is correct and active." };
@@ -110,39 +135,81 @@ export async function POST(req: Request) {
       return new Response("ANTHROPIC_API_KEY is not configured", { status: 500 });
     }
 
-    const body = (await req.json()) as { messages?: ChatMessage[]; demo?: boolean };
-    const messages = body.messages;
-    if (!messages || messages.length === 0 || messages[messages.length - 1].role !== "user") {
-      return new Response("messages must be a non-empty array ending in a user message", { status: 400 });
+    const rawBody = await req.text();
+    if (rawBody.length > MAX_BODY_BYTES) {
+      return new Response("Request body is too large", { status: 413 });
+    }
+    let body: { messages?: unknown; demo?: unknown };
+    try {
+      body = JSON.parse(rawBody) as { messages?: unknown; demo?: unknown };
+    } catch {
+      return new Response("Expected a JSON body", { status: 400 });
+    }
+    const messages = parseMessages(body.messages);
+    if (!messages) {
+      return new Response("messages must be 1–20 user/assistant strings, ending in a user message", { status: 400 });
     }
 
-    let digest: string;
-
-    if (body.demo) {
-      digest = buildDemoDataDigest();
-    } else {
+    const authHeader = req.headers.get("authorization");
+    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
+    let userId: string | null = null;
+    if (token) {
       if (!supabaseAdmin) {
         return new Response("SUPABASE_SERVICE_ROLE_KEY is not configured", { status: 500 });
-      }
-      const authHeader = req.headers.get("authorization");
-      const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-      if (!token) {
-        return new Response("Missing bearer token", { status: 401 });
       }
       const { data: userData, error: userError } = await supabaseAdmin.auth.getUser(token);
       if (userError || !userData.user) {
         return new Response("Invalid session", { status: 401 });
       }
+      userId = userData.user.id;
+    }
+
+    const ip = clientIp(req);
+    let digest: string;
+    let maxTokens = 8000;
+
+    if (userId) {
+      // A logged-in caller always sees their own client, even if the body
+      // also says demo. The client id is never taken from the request.
+      const limit = rateLimit(`chat:user:${userId}`, AUTHED_LIMIT, AUTHED_WINDOW_MS);
+      if (!limit.ok) {
+        return new Response("Too many questions. Try again shortly.", {
+          status: 429,
+          headers: { "Retry-After": String(limit.retryAfterSec), "Cache-Control": "private, no-store" },
+        });
+      }
+      if (!supabaseAdmin) {
+        return new Response("SUPABASE_SERVICE_ROLE_KEY is not configured", { status: 500 });
+      }
       const { data: client, error: clientError } = await supabaseAdmin
         .from("dashboard_clients")
         .select("id")
-        .eq("owner_user_id", userData.user.id)
+        .eq("owner_user_id", userId)
         .limit(1)
         .maybeSingle();
       if (clientError || !client) {
         return new Response("No client profile linked to this account", { status: 404 });
       }
       digest = await buildClientDataDigest(supabaseAdmin, client.id);
+    } else if (body.demo === true) {
+      // Demo login is client-side only, so this path is unauthenticated.
+      // It can only see built-in sample data, and it is rate limited so it
+      // cannot be used as an open proxy for the Anthropic key. Set
+      // ALLOW_DEMO_ASSISTANT=false to turn the path off entirely.
+      if (process.env.ALLOW_DEMO_ASSISTANT === "false") {
+        return new Response("The demo assistant is disabled.", { status: 403 });
+      }
+      const limit = rateLimit(`chat:demo:${ip}`, DEMO_LIMIT, DEMO_WINDOW_MS);
+      if (!limit.ok) {
+        return new Response("Too many demo questions. Try again shortly.", {
+          status: 429,
+          headers: { "Retry-After": String(limit.retryAfterSec), "Cache-Control": "private, no-store" },
+        });
+      }
+      digest = buildDemoDataDigest();
+      maxTokens = 2000;
+    } else {
+      return new Response("Missing bearer token", { status: 401 });
     }
 
     // Prompt caching: the system prompt (rules + this client's data digest)
@@ -155,7 +222,7 @@ export async function POST(req: Request) {
     // shared/prompt-caching.md § "robust combination for agent loops".
     const claudeStream = anthropic.messages.stream({
       model: "claude-opus-5",
-      max_tokens: 8000,
+      max_tokens: maxTokens,
       cache_control: { type: "ephemeral" },
       system: [
         {

@@ -1,11 +1,12 @@
 import { isAdminRequest } from "@/lib/admin-auth";
 import { encodeOAuthState } from "@/lib/oauth-state";
+import { trustedOrigin } from "@/lib/request-origin";
 
 // Step 1 of TikTok OAuth (dashboard-live-setup.md Phase 6).
 // Visit directly: /api/admin/connect/tiktok?client_id=<uuid>&account_id=<advertiser-id>&token=<ADMIN_ACCESS_TOKEN>
 export async function GET(req: Request) {
   if (!isAdminRequest(req)) {
-    return new Response("Not authorized", { status: 401 });
+    return new Response("Not authorized", { status: 401, headers: { "Cache-Control": "private, no-store" } });
   }
 
   const url = new URL(req.url);
@@ -20,13 +21,21 @@ export async function GET(req: Request) {
     return new Response("TIKTOK_CLIENT_KEY is not configured", { status: 500 });
   }
 
-  const redirectUri = `${url.origin}/api/admin/connect/tiktok/callback`;
+  let state: string;
+  try {
+    state = encodeOAuthState(clientId, accountId);
+  } catch (err) {
+    return new Response(err instanceof Error ? err.message : "Could not start the connection.", { status: 400 });
+  }
+
+  const origin = trustedOrigin(req.url);
+  const redirectUri = `${origin}/api/admin/connect/tiktok/callback`;
   const authUrl = new URL("https://www.tiktok.com/v2/auth/authorize");
   authUrl.searchParams.set("client_key", clientKey);
   authUrl.searchParams.set("redirect_uri", redirectUri);
   authUrl.searchParams.set("response_type", "code");
   authUrl.searchParams.set("scope", "user.info.basic,video.list");
-  authUrl.searchParams.set("state", encodeOAuthState(clientId, accountId));
+  authUrl.searchParams.set("state", state);
 
   return Response.redirect(authUrl.toString());
 }

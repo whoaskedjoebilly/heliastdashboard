@@ -1,5 +1,6 @@
 import { isAdminRequest } from "@/lib/admin-auth";
 import { encodeOAuthState } from "@/lib/oauth-state";
+import { trustedOrigin } from "@/lib/request-origin";
 
 // Step 1 of Shopify OAuth. Unlike the Google/Meta/TikTok flows, Shopify's
 // authorize URL lives on the SHOP's own domain (not a shared provider
@@ -13,7 +14,7 @@ const SHOPIFY_SHOP_RE = /^[a-z0-9][a-z0-9-]*\.myshopify\.com$/i;
 
 export async function GET(req: Request) {
   if (!isAdminRequest(req)) {
-    return new Response("Not authorized", { status: 401 });
+    return new Response("Not authorized", { status: 401, headers: { "Cache-Control": "private, no-store" } });
   }
 
   const url = new URL(req.url);
@@ -31,7 +32,15 @@ export async function GET(req: Request) {
     return new Response("SHOPIFY_API_KEY is not configured", { status: 500 });
   }
 
-  const redirectUri = `${url.origin}/api/admin/connect/shopify/callback`;
+  let state: string;
+  try {
+    state = encodeOAuthState(clientId, shop);
+  } catch (err) {
+    return new Response(err instanceof Error ? err.message : "Could not start the connection.", { status: 400 });
+  }
+
+  const origin = trustedOrigin(req.url);
+  const redirectUri = `${origin}/api/admin/connect/shopify/callback`;
   const authUrl = new URL(`https://${shop}/admin/oauth/authorize`);
   authUrl.searchParams.set("client_id", apiKey);
   authUrl.searchParams.set("scope", "read_orders");
@@ -40,7 +49,7 @@ export async function GET(req: Request) {
   // which shop the returned code belongs to without trusting a client-
   // supplied `shop` param there too — it's re-validated against Shopify's
   // own `shop` param and HMAC signature on the way back regardless.
-  authUrl.searchParams.set("state", encodeOAuthState(clientId, shop));
+  authUrl.searchParams.set("state", state);
 
   return Response.redirect(authUrl.toString());
 }

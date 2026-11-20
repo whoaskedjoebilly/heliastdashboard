@@ -3,18 +3,20 @@
 // MigraineMend site), NOT to this dashboard repo. It pings the Supabase
 // Edge Function on every page view so the "Live" tab shows real visitors.
 //
-// Replace CLIENT_ID with this client's dashboard_clients.id — find it on
-// the dashboard's Settings tab. Add a <script> tag loading this file (or
-// paste its contents inline) just before </body>.
+// Replace CLIENT_ID and TRACKING_KEY with the values on this client's
+// dashboard Settings tab. The client id alone is not accepted. Add a
+// <script> tag loading this file (or paste its contents inline) just
+// before </body>.
 (function () {
   var CLIENT_ID = "REPLACE_WITH_DASHBOARD_CLIENTS_ID";
+  var TRACKING_KEY = "REPLACE_WITH_TRACKING_KEY";
   var TRACK_URL = "https://kkvqlplqhdtylwryttpi.supabase.co/functions/v1/track";
 
   function send(position) {
     var payload = {
       client_id: CLIENT_ID,
+      tracking_key: TRACKING_KEY,
       page: window.location.pathname,
-      device: /Mobi|Android/i.test(navigator.userAgent) ? "Mobile" : "Desktop",
       lat: position ? position.coords.latitude : null,
       lng: position ? position.coords.longitude : null,
     };

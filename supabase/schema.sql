@@ -1,4 +1,7 @@
 -- Heliast dashboard — Supabase schema (dashboard-live-setup.md, Phase 2).
+-- Row-level policies for tables added after this file (reports, GA4 pages)
+-- and the live-visitor tracking key live in supabase/security-hardening.sql.
+-- Apply that file in the Supabase SQL editor; it is idempotent.
 -- Applied to the "Heliast site" project (kkvqlplqhdtylwryttpi), which is
 -- shared with the marketing site. That project already has its own
 -- unrelated public.clients table, so every dashboard table here uses a

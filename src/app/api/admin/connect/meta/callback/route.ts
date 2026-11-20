@@ -1,29 +1,15 @@
 import { supabaseAdmin } from "@/lib/supabase/server";
-import { decodeOAuthState } from "@/lib/oauth-state";
+import { logProviderFailure, readOAuthCallback } from "@/lib/oauth-callback";
 
 // Step 2 of Meta OAuth. Exchanges the code for a short-lived token, then
 // immediately exchanges that for a long-lived token (~60 days) since Meta
 // doesn't issue refresh tokens the way Google/TikTok do — the sync job
-// (Phase 7) needs to re-run this exchange periodically before it expires.
+// needs to re-run this exchange periodically before it expires.
+// client_id comes from signed state.
 export async function GET(req: Request) {
-  const url = new URL(req.url);
-  const code = url.searchParams.get("code");
-  const state = decodeOAuthState(url.searchParams.get("state"));
-  const clientId = state?.clientId ?? null;
-  const accountId = state?.accountId ?? null;
-  const igAccountId = state?.igAccountId ?? null;
-  const pageId = state?.pageId ?? null;
-  const oauthError = url.searchParams.get("error");
-
-  if (oauthError) {
-    return new Response(`Meta returned an error: ${oauthError}`, { status: 400 });
-  }
-  if (!code || !clientId) {
-    return new Response("Missing code or state (client_id) in callback", { status: 400 });
-  }
-  if (!supabaseAdmin) {
-    return new Response("SUPABASE_SERVICE_ROLE_KEY is not configured", { status: 500 });
-  }
+  const parsed = await readOAuthCallback(req);
+  if (!parsed.ok) return parsed.response;
+  const { origin, code, state } = parsed.value;
 
   const appId = process.env.META_APP_ID;
   const appSecret = process.env.META_APP_SECRET;
@@ -31,7 +17,7 @@ export async function GET(req: Request) {
     return new Response("META_APP_ID / META_APP_SECRET are not configured", { status: 500 });
   }
 
-  const redirectUri = `${url.origin}/api/admin/connect/meta/callback`;
+  const redirectUri = `${origin}/api/admin/connect/meta/callback`;
 
   const shortLivedUrl = new URL("https://graph.facebook.com/v19.0/oauth/access_token");
   shortLivedUrl.searchParams.set("client_id", appId);
@@ -40,9 +26,7 @@ export async function GET(req: Request) {
   shortLivedUrl.searchParams.set("code", code);
 
   const shortLivedRes = await fetch(shortLivedUrl.toString());
-  if (!shortLivedRes.ok) {
-    return new Response(`Failed to exchange code: ${await shortLivedRes.text()}`, { status: 502 });
-  }
+  if (!shortLivedRes.ok) return logProviderFailure(shortLivedRes, "Failed to exchange the authorization code");
   const { access_token: shortLivedToken } = (await shortLivedRes.json()) as { access_token: string };
 
   const longLivedUrl = new URL("https://graph.facebook.com/v19.0/oauth/access_token");
@@ -52,9 +36,7 @@ export async function GET(req: Request) {
   longLivedUrl.searchParams.set("fb_exchange_token", shortLivedToken);
 
   const longLivedRes = await fetch(longLivedUrl.toString());
-  if (!longLivedRes.ok) {
-    return new Response(`Failed to get long-lived token: ${await longLivedRes.text()}`, { status: 502 });
-  }
+  if (!longLivedRes.ok) return logProviderFailure(longLivedRes, "Failed to get a long-lived token");
   const { access_token, expires_in } = (await longLivedRes.json()) as { access_token: string; expires_in: number };
   const expiresAt = new Date(Date.now() + expires_in * 1000).toISOString();
   const connectedAt = new Date().toISOString();
@@ -63,13 +45,13 @@ export async function GET(req: Request) {
   // integration row per platform that was actually supplied so the sync
   // job's per-platform pulls (syncMetaAds / syncMetaPageStats) each have
   // something to run against, instead of only "meta_ads" existing.
-  const rows = [{ platform: "meta_ads", externalAccountId: accountId }];
-  if (igAccountId) rows.push({ platform: "instagram", externalAccountId: igAccountId });
-  if (pageId) rows.push({ platform: "facebook", externalAccountId: pageId });
+  const rows = [{ platform: "meta_ads", externalAccountId: state.accountId }];
+  if (state.igAccountId) rows.push({ platform: "instagram", externalAccountId: state.igAccountId });
+  if (state.pageId) rows.push({ platform: "facebook", externalAccountId: state.pageId });
 
-  const { error } = await supabaseAdmin.from("dashboard_client_integrations").upsert(
+  const { error } = await supabaseAdmin!.from("dashboard_client_integrations").upsert(
     rows.map((r) => ({
-      client_id: clientId,
+      client_id: state.clientId,
       platform: r.platform,
       access_token,
       refresh_token: null,
@@ -81,8 +63,9 @@ export async function GET(req: Request) {
   );
 
   if (error) {
-    return new Response(`Failed to store integration: ${error.message}`, { status: 500 });
+    console.error("Failed to store meta integration", error.message);
+    return new Response("Failed to store the connection.", { status: 500 });
   }
 
-  return Response.redirect(`${url.origin}/?connected=meta`);
+  return Response.redirect(`${origin}/?connected=meta`);
 }
