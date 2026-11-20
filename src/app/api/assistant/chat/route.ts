@@ -85,44 +85,87 @@ interface ChatMessage {
   content: string;
 }
 
+// Client-facing messages are deliberately generic — details (key problems,
+// billing state, upstream error text) go to server logs only.
 function describeError(err: unknown): { status: number; message: string } {
-  if (err instanceof Anthropic.AuthenticationError) {
-    return { status: 500, message: "Anthropic rejected the API key — check ANTHROPIC_API_KEY is correct and active." };
-  }
-  if (err instanceof Anthropic.PermissionDeniedError) {
-    return { status: 500, message: "Anthropic denied this request — check the API key's org has billing/credits set up." };
-  }
   if (err instanceof Anthropic.RateLimitError) {
-    return { status: 429, message: "Rate limited by Anthropic — try again in a moment." };
+    return { status: 429, message: "The assistant is busy right now — try again in a moment." };
   }
-  if (err instanceof Anthropic.APIError) {
-    return { status: err.status ?? 502, message: `Anthropic API error: ${err.message}` };
-  }
-  if (err instanceof Error) {
-    return { status: 500, message: err.message };
-  }
-  return { status: 500, message: "Unknown error" };
+  return { status: 500, message: "The assistant is unavailable right now." };
 }
+
+// Best-effort per-instance rate limiter. Serverless instances don't share
+// memory, so this is a speed bump against casual abuse of the unauthenticated
+// demo mode, not a hard guarantee — pair with an Anthropic spend limit.
+const hits = new Map<string, number[]>();
+function rateLimited(key: string, limit: number, windowMs: number): boolean {
+  const now = Date.now();
+  const recent = (hits.get(key) ?? []).filter((t) => now - t < windowMs);
+  if (recent.length >= limit) {
+    hits.set(key, recent);
+    return true;
+  }
+  recent.push(now);
+  hits.set(key, recent);
+  if (hits.size > 5000) {
+    for (const [k, v] of hits) if (!v.some((t) => now - t < windowMs)) hits.delete(k);
+  }
+  return false;
+}
+
+const MAX_MESSAGES = 30;
+const MAX_MESSAGE_CHARS = 4000;
 
 export async function POST(req: Request) {
   try {
     if (!anthropic) {
-      return new Response("ANTHROPIC_API_KEY is not configured", { status: 500 });
+      console.error("ANTHROPIC_API_KEY is not configured");
+      return new Response("The assistant is unavailable right now.", { status: 500 });
     }
 
-    const body = (await req.json()) as { messages?: ChatMessage[]; demo?: boolean };
-    const messages = body.messages;
-    if (!messages || messages.length === 0 || messages[messages.length - 1].role !== "user") {
-      return new Response("messages must be a non-empty array ending in a user message", { status: 400 });
+    if (!req.headers.get("content-type")?.includes("application/json")) {
+      return new Response("Expected application/json", { status: 415 });
     }
+    let body: { messages?: ChatMessage[]; demo?: boolean };
+    try {
+      body = await req.json();
+    } catch {
+      return new Response("Invalid JSON body", { status: 400 });
+    }
+    const messages = body.messages;
+    const valid =
+      Array.isArray(messages) &&
+      messages.length > 0 &&
+      messages.length <= MAX_MESSAGES &&
+      messages[messages.length - 1].role === "user" &&
+      messages.every(
+        (m) =>
+          m &&
+          (m.role === "user" || m.role === "assistant") &&
+          typeof m.content === "string" &&
+          m.content.length > 0 &&
+          m.content.length <= MAX_MESSAGE_CHARS
+      );
+    if (!valid || !messages) {
+      return new Response(
+        `messages must be 1-${MAX_MESSAGES} items, each with role user|assistant and content up to ${MAX_MESSAGE_CHARS} chars, ending in a user message`,
+        { status: 400 }
+      );
+    }
+    const ip = (req.headers.get("x-forwarded-for") ?? "unknown").split(",")[0].trim();
 
     let digest: string;
 
     if (body.demo) {
+      // Unauthenticated: tight limits since every call spends real money.
+      if (rateLimited(`demo:${ip}`, 8, 10 * 60 * 1000)) {
+        return new Response("Demo rate limit reached — please try again in a few minutes.", { status: 429 });
+      }
       digest = buildDemoDataDigest();
     } else {
       if (!supabaseAdmin) {
-        return new Response("SUPABASE_SERVICE_ROLE_KEY is not configured", { status: 500 });
+        console.error("SUPABASE_SERVICE_ROLE_KEY is not configured");
+        return new Response("The assistant is unavailable right now.", { status: 500 });
       }
       const authHeader = req.headers.get("authorization");
       const token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
@@ -142,6 +185,9 @@ export async function POST(req: Request) {
       if (clientError || !client) {
         return new Response("No client profile linked to this account", { status: 404 });
       }
+      if (rateLimited(`user:${userData.user.id}`, 40, 10 * 60 * 1000)) {
+        return new Response("Rate limit reached — please slow down.", { status: 429 });
+      }
       digest = await buildClientDataDigest(supabaseAdmin, client.id);
     }
 
@@ -155,7 +201,7 @@ export async function POST(req: Request) {
     // shared/prompt-caching.md § "robust combination for agent loops".
     const claudeStream = anthropic.messages.stream({
       model: "claude-opus-5",
-      max_tokens: 8000,
+      max_tokens: body.demo ? 1500 : 4000,
       cache_control: { type: "ephemeral" },
       system: [
         {

@@ -20,7 +20,18 @@ const CORS_HEADERS = {
 // Deploy/Supabase populate on every request.
 async function geolocateIp(ip: string | null): Promise<{ location: string | null; lat: number | null; lng: number | null }> {
   const empty = { location: null, lat: null, lng: null };
-  if (!ip || ip === "127.0.0.1" || ip === "::1" || ip.startsWith("10.") || ip.startsWith("192.168.")) {
+  // Only look up well-formed public IPv4/IPv6 literals — the value comes from
+  // a request header and is interpolated into a URL path.
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip ?? "");
+  const v6 = /^[0-9a-f:]{2,39}$/i.test(ip ?? "") && (ip ?? "").includes(":");
+  if (!ip || (!v4 && !v6)) return empty;
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])];
+    if (v4.slice(1).some((o) => Number(o) > 255)) return empty;
+    if (a === 10 || a === 127 || a === 0 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254)) {
+      return empty;
+    }
+  } else if (ip === "::1" || /^(fc|fd|fe80)/i.test(ip)) {
     return empty;
   }
   try {
@@ -62,9 +73,24 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const { client_id, page, location, lat, lng, device } = body;
+  if (!body || typeof body !== "object") {
+    return new Response(JSON.stringify({ error: "Invalid JSON body" }), {
+      status: 400,
+      headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+    });
+  }
+  const { client_id } = body;
+  // Coerce/limit every untrusted field before it touches the database.
+  const str = (v: unknown, max: number): string | null => (typeof v === "string" && v.length > 0 ? v.slice(0, max) : null);
+  const num = (v: unknown, lo: number, hi: number): number | null =>
+    typeof v === "number" && Number.isFinite(v) && v >= lo && v <= hi ? v : null;
+  const page = str(body.page, 500);
+  const location = str(body.location, 120);
+  const device = str(body.device, 40);
+  const lat = num(body.lat, -90, 90);
+  const lng = num(body.lng, -180, 180);
   const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-  if (!client_id || !uuidPattern.test(client_id) || !page) {
+  if (typeof client_id !== "string" || !uuidPattern.test(client_id) || !page) {
     return new Response(JSON.stringify({ error: "client_id (uuid) and page are required" }), {
       status: 400,
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
@@ -102,7 +128,8 @@ Deno.serve(async (req: Request) => {
     device: device ?? null,
   });
   if (insertError) {
-    return new Response(JSON.stringify({ error: insertError.message }), {
+    console.error("track insert failed:", insertError.message);
+    return new Response(JSON.stringify({ error: "Could not record visit" }), {
       status: 500,
       headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
     });
