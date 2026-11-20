@@ -1,6 +1,6 @@
 import { isAdminRequest } from "@/lib/admin-auth";
-
 import { encodeOAuthState } from "@/lib/oauth-state";
+import { trustedOrigin } from "@/lib/request-origin";
 
 // Step 1 of Google Search Console OAuth (dashboard-live-setup.md Phase 6).
 // Never linked from the client dashboard — visit directly as an admin:
@@ -8,7 +8,7 @@ import { encodeOAuthState } from "@/lib/oauth-state";
 // account_id here is the GSC-verified site URL (e.g. https://example.com/ or sc-domain:example.com).
 export async function GET(req: Request) {
   if (!isAdminRequest(req)) {
-    return new Response("Not authorized", { status: 401 });
+    return new Response("Not authorized", { status: 401, headers: { "Cache-Control": "private, no-store" } });
   }
 
   const url = new URL(req.url);
@@ -23,7 +23,15 @@ export async function GET(req: Request) {
     return new Response("GOOGLE_CLIENT_ID is not configured", { status: 500 });
   }
 
-  const redirectUri = `${url.origin}/api/admin/connect/gsc/callback`;
+  let state: string;
+  try {
+    state = encodeOAuthState(clientId, accountId);
+  } catch (err) {
+    return new Response(err instanceof Error ? err.message : "Could not start the connection.", { status: 400 });
+  }
+
+  const origin = trustedOrigin(req.url);
+  const redirectUri = `${origin}/api/admin/connect/gsc/callback`;
   const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   authUrl.searchParams.set("client_id", clientIdEnv);
   authUrl.searchParams.set("redirect_uri", redirectUri);
@@ -31,7 +39,7 @@ export async function GET(req: Request) {
   authUrl.searchParams.set("scope", "https://www.googleapis.com/auth/webmasters.readonly");
   authUrl.searchParams.set("access_type", "offline");
   authUrl.searchParams.set("prompt", "consent");
-  authUrl.searchParams.set("state", encodeOAuthState(clientId, accountId));
+  authUrl.searchParams.set("state", state);
 
   return Response.redirect(authUrl.toString());
 }

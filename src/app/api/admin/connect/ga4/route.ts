@@ -1,6 +1,6 @@
 import { isAdminRequest } from "@/lib/admin-auth";
-
 import { encodeOAuthState } from "@/lib/oauth-state";
+import { trustedOrigin } from "@/lib/request-origin";
 
 // Step 1 of Google Analytics 4 OAuth (adds page-level engagement/drop-off
 // data the assistant can't get from dashboard_daily_traffic's daily totals).
@@ -10,7 +10,7 @@ import { encodeOAuthState } from "@/lib/oauth-state";
 // find it in GA4 Admin > Property Settings > Property ID.
 export async function GET(req: Request) {
   if (!isAdminRequest(req)) {
-    return new Response("Not authorized", { status: 401 });
+    return new Response("Not authorized", { status: 401, headers: { "Cache-Control": "private, no-store" } });
   }
 
   const url = new URL(req.url);
@@ -25,7 +25,15 @@ export async function GET(req: Request) {
     return new Response("GOOGLE_CLIENT_ID is not configured", { status: 500 });
   }
 
-  const redirectUri = `${url.origin}/api/admin/connect/ga4/callback`;
+  let state: string;
+  try {
+    state = encodeOAuthState(clientId, accountId);
+  } catch (err) {
+    return new Response(err instanceof Error ? err.message : "Could not start the connection.", { status: 400 });
+  }
+
+  const origin = trustedOrigin(req.url);
+  const redirectUri = `${origin}/api/admin/connect/ga4/callback`;
   const authUrl = new URL("https://accounts.google.com/o/oauth2/v2/auth");
   authUrl.searchParams.set("client_id", clientIdEnv);
   authUrl.searchParams.set("redirect_uri", redirectUri);
@@ -33,7 +41,7 @@ export async function GET(req: Request) {
   authUrl.searchParams.set("scope", "https://www.googleapis.com/auth/analytics.readonly");
   authUrl.searchParams.set("access_type", "offline");
   authUrl.searchParams.set("prompt", "consent");
-  authUrl.searchParams.set("state", encodeOAuthState(clientId, accountId));
+  authUrl.searchParams.set("state", state);
 
   return Response.redirect(authUrl.toString());
 }

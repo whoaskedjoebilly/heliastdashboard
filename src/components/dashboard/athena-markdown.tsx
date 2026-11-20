@@ -36,6 +36,21 @@ function isChartClassName(className: unknown): boolean {
   return /language-(chart-bar|chart-donut)/.test(String(className ?? ""));
 }
 
+/** react-markdown already drops javascript: URLs. This keeps links to
+ * http(s) and mailto even if a future plugin stops doing that. */
+function safeHref(href: unknown): string | null {
+  if (typeof href !== "string" || !href) return null;
+  try {
+    const parsed = new URL(href, "https://www.heliastdashboard.com");
+    if (parsed.protocol === "http:" || parsed.protocol === "https:" || parsed.protocol === "mailto:") {
+      return parsed.protocol === "mailto:" ? href : parsed.href;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export function markdownComponents(): Record<string, (props: Record<string, unknown>) => ReactNode> {
   return {
     // A <pre> only ever wraps a single <code> child — inline code (single
@@ -70,6 +85,15 @@ export function markdownComponents(): Record<string, (props: Record<string, unkn
       // directly (no <pre> ever wraps it); a normal fenced block gets
       // wrapped by the pre() override above.
       return <code className={className as string | undefined}>{children as ReactNode}</code>;
+    },
+    a({ href, children }) {
+      const safe = safeHref(href);
+      if (!safe) return <span>{children as ReactNode}</span>;
+      return (
+        <a href={safe} rel="noreferrer noopener" target="_blank">
+          {children as ReactNode}
+        </a>
+      );
     },
     table({ children }) {
       return (

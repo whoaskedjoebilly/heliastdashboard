@@ -125,7 +125,15 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
         />
       );
     if (tab === "leads") return <LeadsPanel configured={configured} clientId={clientId} />;
-    return <SettingsTab onLogout={onLogout} businessName={businessName} businessPlan={businessPlan} clientId={clientId} />;
+    return (
+      <SettingsTab
+        onLogout={onLogout}
+        businessName={businessName}
+        businessPlan={businessPlan}
+        clientId={clientId}
+        trackingKey={configured ? client?.tracking_key ?? null : null}
+      />
+    );
   }, [
     tab,
     onLogout,
@@ -135,6 +143,7 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
     noClientLinked,
     businessName,
     businessPlan,
+    client,
     reports,
     reportsLoading,
     deleteReport,

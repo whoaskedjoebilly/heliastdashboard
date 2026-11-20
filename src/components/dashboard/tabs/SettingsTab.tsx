@@ -9,6 +9,7 @@ interface SettingsTabProps {
   businessName: string;
   businessPlan: string | null;
   clientId: string | null;
+  trackingKey: string | null;
 }
 
 const PLATFORM_LABELS: Record<string, string> = {
@@ -21,7 +22,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   facebook: "Facebook",
 };
 
-export function SettingsTab({ onLogout, businessName, businessPlan, clientId }: SettingsTabProps) {
+export function SettingsTab({ onLogout, businessName, businessPlan, clientId, trackingKey }: SettingsTabProps) {
   const { statuses, loading } = useIntegrationStatus(clientId);
 
   return (
@@ -45,7 +46,20 @@ export function SettingsTab({ onLogout, businessName, businessPlan, clientId }: 
               <div>
                 <div className="settings-label">Client ID</div>
                 <div className="settings-value mono muted">{clientId}</div>
-                <div className="table-sub">Used to set up the live-visitor tracking snippet on your site.</div>
+                <div className="table-sub">Identifies this account. It is not enough on its own to send live-visitor pings.</div>
+              </div>
+            </div>
+          )}
+          {clientId && (
+            <div className="settings-row">
+              <div>
+                <div className="settings-label">Tracking key</div>
+                <div className="settings-value mono muted">{trackingKey ?? "Not issued yet"}</div>
+                <div className="table-sub">
+                  {trackingKey
+                    ? "Put this in the live-visitor snippet on your site, next to the client ID. Treat it like a password — anyone who has it can write visits onto this account's Live tab."
+                    : "Apply supabase/security-hardening.sql, then reload. Until a key exists, the tracking endpoint will refuse new pings once the updated edge function is deployed."}
+                </div>
               </div>
             </div>
           )}

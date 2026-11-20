@@ -80,7 +80,7 @@ export function useLeads(configured: boolean, clientId: string | null) {
         return { error: null };
       }
       if (!supabase || !clientId) return { error: "Not signed in" };
-      const { error } = await supabase.from("dashboard_leads").insert({ client_id: clientId, ...input });
+      const { error } = await supabase.from("dashboard_leads").insert({ ...input, client_id: clientId });
       if (error) return { error: error.message };
       await refresh();
       return { error: null };
@@ -95,15 +95,16 @@ export function useLeads(configured: boolean, clientId: string | null) {
         setDemoState((prev) => prev.map((l) => (l.id === id ? { ...l, ...patch, updated_at: now } : l)));
         return;
       }
-      if (!supabase) return;
+      if (!supabase || !clientId) return;
       const { error } = await supabase
         .from("dashboard_leads")
         .update({ ...patch, updated_at: now })
-        .eq("id", id);
+        .eq("id", id)
+        .eq("client_id", clientId);
       if (error) console.error("Failed to update lead", error);
       await refresh();
     },
-    [configured, refresh]
+    [configured, clientId, refresh]
   );
 
   const deleteLead = useCallback(
@@ -112,12 +113,12 @@ export function useLeads(configured: boolean, clientId: string | null) {
         setDemoState((prev) => prev.filter((l) => l.id !== id));
         return;
       }
-      if (!supabase) return;
-      const { error } = await supabase.from("dashboard_leads").delete().eq("id", id);
+      if (!supabase || !clientId) return;
+      const { error } = await supabase.from("dashboard_leads").delete().eq("id", id).eq("client_id", clientId);
       if (error) console.error("Failed to delete lead", error);
       await refresh();
     },
-    [configured, refresh]
+    [configured, clientId, refresh]
   );
 
   return { leads: configured ? realLeads : demoState, loading, addLead, updateLead, deleteLead };
