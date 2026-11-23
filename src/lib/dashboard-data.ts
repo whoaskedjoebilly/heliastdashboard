@@ -7,6 +7,7 @@
 // to "not configured" when Supabase isn't wired up (see supabase/client.ts).
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "./supabase/client";
+import { localDateStr } from "@/lib/local-date";
 import type {
   CampaignRow,
   ChannelSplit,
@@ -105,7 +106,7 @@ export interface RangeBounds {
  * exactly the same thing on every tab. */
 export function computeRangeBounds(range: RangeKey): RangeBounds {
   const { length, endOffset, trendLength } = RANGE_CONFIG[range];
-  const dateStr = (d: Date) => d.toISOString().slice(0, 10);
+  const dateStr = (d: Date) => localDateStr(d);
   const addDays = (d: Date, n: number) => {
     const copy = new Date(d);
     copy.setDate(copy.getDate() + n);
@@ -200,7 +201,7 @@ export function useOverviewData(clientId: string | null, range: RangeKey = "30d"
       if (isInitial) setLoading(true);
       const since180 = new Date();
       since180.setDate(since180.getDate() - 180);
-      const since180Str = since180.toISOString().slice(0, 10);
+      const since180Str = localDateStr(since180);
 
       const [trafficRes, keywordsRes, campaignsRes] = await Promise.all([
         client
@@ -373,7 +374,7 @@ export function useSeoData(clientId: string | null, range: RangeKey = "30d") {
       setLoading(true);
       const since180 = new Date();
       since180.setDate(since180.getDate() - 180);
-      const since180Str = since180.toISOString().slice(0, 10);
+      const since180Str = localDateStr(since180);
 
       const [keywordsRes, trafficRes] = await Promise.all([
         supabase
@@ -476,7 +477,7 @@ export function useAdsData(clientId: string | null, range: RangeKey = "30d") {
       setLoading(true);
       const since180 = new Date();
       since180.setDate(since180.getDate() - 180);
-      const since180Str = since180.toISOString().slice(0, 10);
+      const since180Str = localDateStr(since180);
 
       const [campaignsRes, trafficRes] = await Promise.all([
         supabase
@@ -576,7 +577,7 @@ export function useSocialData(clientId: string | null, range: RangeKey = "30d") 
       setLoading(true);
       const since180 = new Date();
       since180.setDate(since180.getDate() - 180);
-      const since180Str = since180.toISOString().slice(0, 10);
+      const since180Str = localDateStr(since180);
 
       const { data, error } = await supabase
         .from("dashboard_social_stats")

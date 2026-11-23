@@ -8,6 +8,7 @@
 // days", since the report builder lets someone pick an arbitrary custom
 // window (e.g. a specific two weeks last month) — not just a trailing
 // range from today.
+import { localDateStr } from "@/lib/local-date";
 import {
   CAMPAIGNS,
   CHANNEL_SPLIT,
@@ -25,7 +26,7 @@ function datesInRange(startStr: string, endStr: string): string[] {
   let d = parseDateStr(startStr);
   const end = parseDateStr(endStr);
   while (d <= end) {
-    out.push(d.toISOString().slice(0, 10));
+    out.push(localDateStr(d));
     d = new Date(d);
     d.setDate(d.getDate() + 1);
   }

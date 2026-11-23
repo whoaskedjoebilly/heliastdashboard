@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Calendar, Check } from "lucide-react";
+import { localDateStr } from "@/lib/local-date";
 import { Dropdown } from "./ui/Dropdown";
 import { PRESET_ORDER, customRange, presetRange, type ReportRange } from "@/lib/reports/date-range";
 
@@ -80,7 +81,7 @@ export function DateRangePicker({ value, onChange }: DateRangePickerProps) {
                   className="drp-date-input"
                   value={customEnd}
                   min={customStart}
-                  max={new Date().toISOString().slice(0, 10)}
+                  max={localDateStr(new Date())}
                   onChange={(e) => setCustomEnd(e.target.value)}
                 />
               </div>
