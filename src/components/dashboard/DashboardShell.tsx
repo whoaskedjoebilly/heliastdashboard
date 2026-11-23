@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { Menu, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Lock, Menu, X } from "lucide-react";
 import { BUSINESS } from "./mock-data";
 import { OverviewTab } from "./tabs/OverviewTab";
 import { SeoTab } from "./tabs/SeoTab";
@@ -12,6 +12,7 @@ import { AnalyticsTab } from "./tabs/AnalyticsTab";
 import { LeadsPanel } from "./LeadsPanel";
 import { SettingsTab } from "./tabs/SettingsTab";
 import { AiAssistant } from "./AiAssistant";
+import { hasFeature, minimumPlanFor, PLAN_LABELS } from "@/lib/plans";
 import { useCustomReports, useDashboardClient, useSavedReports, type RangeKey } from "@/lib/dashboard-data";
 
 interface DashboardShellProps {
@@ -96,7 +97,30 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
     deleteCustomReport,
   } = useCustomReports(clientId);
 
+  // Demo sessions always see every feature so prospects can see what each
+  // plan could unlock.
+  const can = useCallback(
+    (feature: Parameters<typeof hasFeature>[1]) => !configured || hasFeature(businessPlan, feature),
+    [configured, businessPlan],
+  );
+
   const content = useMemo(() => {
+    if (!noClientLinked && !can(tab)) {
+      const needed = PLAN_LABELS[minimumPlanFor(tab)];
+      return (
+        <div className="locked-feature">
+          <Lock size={26} />
+          <h2>{NAV.find((n) => n.id === tab)?.label} is included in the {needed} plan</h2>
+          <p>
+            Your current plan is {businessPlan ?? "—"}. Contact your Heliast team to upgrade and unlock this
+            section.
+          </p>
+          <a className="locked-cta" href="mailto:contact@heliastmedia.com?subject=Upgrade%20my%20Heliast%20plan">
+            Talk to Heliast about upgrading
+          </a>
+        </div>
+      );
+    }
     if (noClientLinked) {
       return (
         <div className="live-empty">
@@ -143,6 +167,7 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
     saveCustomReport,
     deleteCustomReport,
     range,
+    can,
   ]);
 
   const title = NAV.find((n) => n.id === tab)?.label ?? "Overview";
@@ -153,6 +178,7 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
         {NAV.map((n) => (
           <button key={n.id} className={`nav-item ${tab === n.id ? "active" : ""}`} onClick={() => selectTab(n.id)}>
             {n.label}
+            {!can(n.id) && <Lock size={12} className="nav-lock" aria-label="Not included in your plan" />}
           </button>
         ))}
       </nav>
@@ -223,7 +249,7 @@ export function DashboardShell({ onLogout, forceDemo }: DashboardShellProps) {
         <div className="content">{content}</div>
       </main>
 
-      <AiAssistant configured={configured} clientId={clientId} businessName={businessName} saveReport={saveReport} />
+      {can("assistant") && <AiAssistant configured={configured} clientId={clientId} businessName={businessName} saveReport={saveReport} />}
     </div>
   );
 }

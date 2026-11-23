@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { anthropic } from "@/lib/anthropic/server";
 import { supabaseAdmin } from "@/lib/supabase/server";
+import { hasFeature } from "@/lib/plans";
 import { buildClientDataDigest, buildDemoDataDigest } from "@/lib/assistant/data-context";
 
 export const maxDuration = 60;
@@ -135,12 +136,15 @@ export async function POST(req: Request) {
       }
       const { data: client, error: clientError } = await supabaseAdmin
         .from("dashboard_clients")
-        .select("id")
+        .select("id, plan")
         .eq("owner_user_id", userData.user.id)
         .limit(1)
         .maybeSingle();
       if (clientError || !client) {
         return new Response("No client profile linked to this account", { status: 404 });
+      }
+      if (!hasFeature(client.plan, "assistant")) {
+        return new Response("Athena isn't included in your current plan", { status: 403 });
       }
       digest = await buildClientDataDigest(supabaseAdmin, client.id);
     }
