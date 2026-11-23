@@ -2139,3 +2139,44 @@ nav {
     width: 100%;
   }
 }
+
+/* Plan gating */
+.nav-lock {
+  margin-left: auto;
+  opacity: 0.55;
+}
+.nav-item {
+  display: flex;
+  align-items: center;
+}
+.locked-feature {
+  max-width: 460px;
+  margin: 64px auto;
+  text-align: center;
+  padding: 36px 28px;
+  border: 1px solid rgba(62, 242, 140, 0.18);
+  border-radius: 16px;
+  background: rgba(28, 27, 27, 0.7);
+  color: #e8efe9;
+}
+.locked-feature svg {
+  color: #3ef28c;
+}
+.locked-feature h2 {
+  font-size: 1.15rem;
+  margin: 14px 0 8px;
+}
+.locked-feature p {
+  opacity: 0.7;
+  font-size: 0.9rem;
+  margin: 0 0 20px;
+}
+.locked-cta {
+  display: inline-block;
+  padding: 10px 18px;
+  border-radius: 10px;
+  background: #3ef28c;
+  color: #0a1310;
+  font-weight: 600;
+  text-decoration: none;
+}
