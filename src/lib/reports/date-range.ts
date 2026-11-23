@@ -5,6 +5,7 @@
 // working with whatever window it was built for, not whatever range the
 // user happens to have the rest of the dashboard set to.
 
+import { localDateStr } from "@/lib/local-date";
 export type ReportRangeKey = "today" | "yesterday" | "7d" | "30d" | "90d" | "custom";
 
 export interface ReportRange {
@@ -15,7 +16,7 @@ export interface ReportRange {
 }
 
 function dateStr(d: Date): string {
-  return d.toISOString().slice(0, 10);
+  return localDateStr(d);
 }
 function addDays(d: Date, n: number): Date {
   const copy = new Date(d);
