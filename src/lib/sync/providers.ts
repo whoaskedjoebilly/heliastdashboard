@@ -328,14 +328,21 @@ export async function syncShopify(integration: IntegrationRow, db: SupabaseClien
     created_at_min: since.toISOString(),
     limit: "250",
   });
-  const res = await fetch(`https://${integration.external_account_id}/admin/api/2024-10/orders.json?${params}`, {
-    headers: { "X-Shopify-Access-Token": integration.access_token },
-  });
-  if (!res.ok) throw new Error(`Shopify orders.json failed: ${await res.text()}`);
-  const { orders } = (await res.json()) as { orders?: { created_at: string; total_price: string }[] };
+  // Shopify caps a page at 250 orders, so follow the Link: rel="next" cursor
+  // until it runs out (bounded, so a runaway store can't hang the cron job).
+  type ShopifyOrder = { created_at: string; total_price: string };
+  const orders: ShopifyOrder[] = [];
+  let url: string | null = `https://${integration.external_account_id}/admin/api/2024-10/orders.json?${params}`;
+  for (let page = 0; url && page < 40; page++) {
+    const res: Response = await fetch(url, { headers: { "X-Shopify-Access-Token": integration.access_token } });
+    if (!res.ok) throw new Error(`Shopify orders.json failed: ${await res.text()}`);
+    const body = (await res.json()) as { orders?: ShopifyOrder[] };
+    orders.push(...(body.orders ?? []));
+    url = /<([^>]+)>;\s*rel="next"/.exec(res.headers.get("link") ?? "")?.[1] ?? null;
+  }
 
   const byDate = new Map<string, { orders: number; revenue: number }>();
-  for (const order of orders ?? []) {
+  for (const order of orders) {
     const date = order.created_at.slice(0, 10);
     const bucket = byDate.get(date) ?? { orders: 0, revenue: 0 };
     bucket.orders += 1;
